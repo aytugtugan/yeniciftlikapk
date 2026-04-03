@@ -60,12 +60,21 @@ export async function checkForUpdate() {
 
   const releases = await response.json();
 
-  // "yeniciftlik-v" ile başlayan en son release'i bul
-  const release = releases.find(r => r.tag_name && r.tag_name.startsWith('yeniciftlik-v'));
+  // "yeniciftlik-v" ile başlayan release'ler arasında en yüksek versionCode'luyu bul
+  // GitHub API sıralaması güvenilir değil, bu yüzden tüm release'leri tarayıp
+  // en yüksek numaralı olanı seçiyoruz
+  const yeniCiftlikReleases = releases.filter(r => r.tag_name && r.tag_name.startsWith('yeniciftlik-v'));
 
-  if (!release) {
+  if (yeniCiftlikReleases.length === 0) {
     return { hasUpdate: false };
   }
+
+  // En yüksek versionCode'lu release'i bul
+  const release = yeniCiftlikReleases.reduce((best, r) => {
+    const num = parseInt(r.tag_name.replace('yeniciftlik-v', ''), 10);
+    const bestNum = parseInt(best.tag_name.replace('yeniciftlik-v', ''), 10);
+    return (!isNaN(num) && num > bestNum) ? r : best;
+  }, yeniCiftlikReleases[0]);
 
   // Tag'den versionCode ve versionName çıkar
   // Tag formatı: yeniciftlik-v2  veya  yeniciftlik-v1.1.0
