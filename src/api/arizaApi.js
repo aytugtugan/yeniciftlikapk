@@ -46,6 +46,7 @@ export async function createArizaKayit(token, data) {
       makineKodu: data.makineKodu,
       arizaNedeni: data.arizaNedeni,
       factoryNo: data.factoryNo || 2,
+      acanKullanici: data.acanKullanici,
     }
   );
 }
@@ -76,11 +77,11 @@ export async function getArizaKayitById(token, id) {
 /**
  * Bir arıza kaydını çözer
  */
-export async function resolveArizaKayit(token, id, arizaCozumu) {
+export async function resolveArizaKayit(token, id, arizaCozumu, cozenKullanici) {
   return arizaRequest(
     `/api/v1/ArizaKayitlari/${id}/coz`,
     token,
     'PUT',
-    { arizaCozumu }
+    { arizaCozumu, cozenKullanici }
   );
 }

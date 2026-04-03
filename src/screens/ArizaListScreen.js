@@ -25,10 +25,10 @@ export default function ArizaListScreen({ navigation }) {
   const loadData = useCallback(async () => {
     if (!oncuToken) return;
     try {
+      setIsLoading(true);
       setError(null);
       const response = await getArizaKayitlari(oncuToken, {
         factoryNo: 2,
-        durum: durum || undefined,
         pageSize: 50,
       });
 
@@ -44,18 +44,21 @@ export default function ArizaListScreen({ navigation }) {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [oncuToken, durum]);
+  }, [oncuToken]);
 
   useEffect(() => {
-    setIsLoading(true);
     loadData();
-  }, []);
+  }, [loadData]);
 
   useFocusEffect(
     useCallback(() => {
       loadData();
     }, [loadData]),
   );
+
+  const filteredKayitlar = durum
+    ? kayitlar.filter((k) => k.durum === durum)
+    : kayitlar;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -87,9 +90,7 @@ export default function ArizaListScreen({ navigation }) {
   };
 
   const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.listItem}
-      onPress={() => navigation.navigate('ArizaDetail', { id: item.id })}>
+    <View style={styles.listItem}>
       <View style={styles.itemContent}>
         <View style={styles.itemHeader}>
           <View style={styles.headerLeft}>
@@ -104,23 +105,30 @@ export default function ArizaListScreen({ navigation }) {
           </View>
         </View>
 
-        <Text style={styles.description} numberOfLines={2}>
-          {item.durum === 'Cozuldu' && item.arizaCozumu
-            ? item.arizaCozumu
-            : item.arizaNedeni}
+        <Text style={styles.arizaNedeni} numberOfLines={2}>
+          {item.arizaNedeni}
         </Text>
+
+        {item.durum === 'Cozuldu' && item.arizaCozumu && (
+          <Text style={styles.arizaCozumu} numberOfLines={2}>
+            Çözüm: {item.arizaCozumu}
+          </Text>
+        )}
 
         <View style={styles.itemFooter}>
           <SimpleIcon name="schedule" size={12} color={Colors.textSecondary} />
           <Text style={styles.tarih}>
-            {item.durum === 'Cozuldu'
-              ? formatDate(item.cozumTarihiSaat)
-              : formatDate(item.kayitTarihiSaat)}
+            {formatDate(item.kayitTarihiSaat)}
           </Text>
+          {item.acanKullanici && (
+            <Text style={styles.tarih}> | Açan: {item.acanKullanici}</Text>
+          )}
+          {item.durum === 'Cozuldu' && item.cozenKullanici && (
+            <Text style={styles.tarih}> | Çözen: {item.cozenKullanici}</Text>
+          )}
         </View>
       </View>
-      <SimpleIcon name="chevron_right" size={20} color={Colors.textSecondary} />
-    </TouchableOpacity>
+    </View>
   );
 
   const emptyComponent = () => (
@@ -154,14 +162,7 @@ export default function ArizaListScreen({ navigation }) {
       <View style={styles.filterContainer}>
         <TouchableOpacity
           style={[styles.filterTab, !durum && styles.filterTabActive]}
-          onPress={() => {
-            setDurum(null);
-            setIsLoading(true);
-            getArizaKayitlari(oncuToken, { factoryNo: 2, pageSize: 50 }).then((res) => {
-              if (Array.isArray(res)) setKayitlar(res);
-              setIsLoading(false);
-            }).catch(() => setIsLoading(false));
-          }}>
+          onPress={() => setDurum(null)}>
           <Text
             style={[
               styles.filterTabText,
@@ -173,14 +174,7 @@ export default function ArizaListScreen({ navigation }) {
 
         <TouchableOpacity
           style={[styles.filterTab, durum === 'Acik' && styles.filterTabActive]}
-          onPress={() => {
-            setDurum('Acik');
-            setIsLoading(true);
-            getArizaKayitlari(oncuToken, { factoryNo: 2, durum: 'Acik', pageSize: 50 }).then((res) => {
-              if (Array.isArray(res)) setKayitlar(res);
-              setIsLoading(false);
-            }).catch(() => setIsLoading(false));
-          }}>
+          onPress={() => setDurum('Acik')}>
           <View style={styles.filterTabBadge}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FBBF24' }} />
             <Text
@@ -195,14 +189,7 @@ export default function ArizaListScreen({ navigation }) {
 
         <TouchableOpacity
           style={[styles.filterTab, durum === 'Cozuldu' && styles.filterTabActive]}
-          onPress={() => {
-            setDurum('Cozuldu');
-            setIsLoading(true);
-            getArizaKayitlari(oncuToken, { factoryNo: 2, durum: 'Cozuldu', pageSize: 50 }).then((res) => {
-              if (Array.isArray(res)) setKayitlar(res);
-              setIsLoading(false);
-            }).catch(() => setIsLoading(false));
-          }}>
+          onPress={() => setDurum('Cozuldu')}>
           <View style={styles.filterTabBadge}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.success }} />
             <Text
@@ -233,13 +220,13 @@ export default function ArizaListScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={kayitlar}
+          data={filteredKayitlar}
           renderItem={renderItem}
           keyExtractor={(item, idx) => `${item.id}-${idx}`}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={emptyComponent}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />}
-          scrollEnabled={kayitlar.length > 0}
+          scrollEnabled={filteredKayitlar.length > 0}
         />
       )}
 

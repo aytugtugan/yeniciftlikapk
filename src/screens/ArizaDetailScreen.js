@@ -11,7 +11,7 @@ import { getArizaKayitById, resolveArizaKayit } from '../api/arizaApi';
 
 export default function ArizaDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { oncuToken } = useContext(AppDataContext);
+  const { oncuToken, loggedInUser } = useContext(AppDataContext);
   const id = route.params?.id;
 
   const [kayit, setKayit] = useState(null);
@@ -65,7 +65,7 @@ export default function ArizaDetailScreen({ navigation, route }) {
 
     setIsResolving(true);
     try {
-      const response = await resolveArizaKayit(oncuToken, id, cozumuValue.trim());
+      const response = await resolveArizaKayit(oncuToken, id, cozumuValue.trim(), loggedInUser?.userName || loggedInUser?.username || 'Bilinmiyor');
       Alert.alert('Başarılı', 'Arıza kaydı başarıyla çözüldü.', [
         {
           text: 'Tamam',

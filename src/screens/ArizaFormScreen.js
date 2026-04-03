@@ -11,7 +11,7 @@ import { createArizaKayit } from '../api/arizaApi';
 
 export default function ArizaFormScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { oncuToken } = useContext(AppDataContext);
+  const { oncuToken, loggedInUser } = useContext(AppDataContext);
   const initialMakineKodu = route.params?.makineKodu || '';
 
   const [makineKodu, setMakineKodu] = useState(initialMakineKodu);
@@ -49,6 +49,7 @@ export default function ArizaFormScreen({ navigation, route }) {
         makineKodu: makineKodu.trim().toUpperCase(),
         arizaNedeni: arizaNedeni.trim(),
         factoryNo: 2,
+        acanKullanici: loggedInUser?.userName || loggedInUser?.username || 'Bilinmiyor',
       });
 
       Alert.alert('Başarılı', 'Arıza kaydı başarıyla açılmıştır.', [
