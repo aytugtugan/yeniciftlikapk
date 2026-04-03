@@ -20,12 +20,6 @@ const modules = [
     description: 'Geçmiş kalite kontrol kayıtlarını görüntüle',
     route: 'KaliteFormKayit',
   },
-  {
-    icon: 'report_problem',
-    title: 'Arıza Kayıtları',
-    description: 'Makine arızalarını kaydet ve çöz',
-    route: 'ArizaList',
-  },
 ];
 
 export default function KaliteModulScreen() {

@@ -21,6 +21,7 @@ const menuItems = [
   { icon: 'description', title: 'Formlar', desc: 'Kontrol formları', route: 'FormlarStack', color: '#059669', bg: '#ECFDF5' },
   { icon: 'bar-chart', title: 'Rapor', desc: 'Günlük raporlar', route: 'RaporStack', color: '#D97706', bg: '#FEF3C7' },
   { icon: 'local-shipping', title: 'Depo Sevk\nHazırlık', desc: 'Depo sevk hazırlık', route: 'DepoSevk', color: '#DC2626', bg: '#FEE2E2' },
+  { icon: 'build', title: 'Arıza\nKayıtları', desc: 'Arıza kaydet ve çöz', route: 'ArizaList', color: '#EA580C', bg: '#FFF7ED' },
   { icon: 'person', title: 'Profil', desc: 'Hesap ve ayarlar', route: 'Profil', color: '#6366F1', bg: '#EEF2FF' },
 ];
 

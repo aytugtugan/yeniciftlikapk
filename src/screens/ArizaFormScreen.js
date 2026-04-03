@@ -51,16 +51,12 @@ export default function ArizaFormScreen({ navigation, route }) {
         factoryNo: 2,
       });
 
-      if (response.success) {
-        Alert.alert('Başarılı', 'Arıza kaydı başarıyla açılmıştır.', [
-          {
-            text: 'Tamam',
-            onPress: () => navigation.navigate('ArizaList'),
-          },
-        ]);
-      } else {
-        Alert.alert('Hata', response.message || 'Kaydedilemedi');
-      }
+      Alert.alert('Başarılı', 'Arıza kaydı başarıyla açılmıştır.', [
+        {
+          text: 'Tamam',
+          onPress: () => navigation.navigate('ArizaList'),
+        },
+      ]);
     } catch (err) {
       Alert.alert('Hata', err.message || 'Bir hata oluştu');
     } finally {

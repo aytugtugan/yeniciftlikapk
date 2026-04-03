@@ -32,10 +32,11 @@ export default function ArizaListScreen({ navigation }) {
         pageSize: 50,
       });
 
-      if (response.success) {
-        setKayitlar(response.data || []);
+      if (Array.isArray(response)) {
+        setKayitlar(response);
       } else {
-        setError(response.message || 'Veriler yüklenemedi');
+        setKayitlar([]);
+        setError('Beklenmeyen veri formatı');
       }
     } catch (err) {
       setError(err.message || 'Bağlantı hatası');
@@ -113,8 +114,8 @@ export default function ArizaListScreen({ navigation }) {
           <SimpleIcon name="schedule" size={12} color={Colors.textSecondary} />
           <Text style={styles.tarih}>
             {item.durum === 'Cozuldu'
-              ? formatDate(item.captilidiTarih)
-              : formatDate(item.acildiTarih)}
+              ? formatDate(item.cozumTarihiSaat)
+              : formatDate(item.kayitTarihiSaat)}
           </Text>
         </View>
       </View>
@@ -157,9 +158,9 @@ export default function ArizaListScreen({ navigation }) {
             setDurum(null);
             setIsLoading(true);
             getArizaKayitlari(oncuToken, { factoryNo: 2, pageSize: 50 }).then((res) => {
-              if (res.success) setKayitlar(res.data || []);
+              if (Array.isArray(res)) setKayitlar(res);
               setIsLoading(false);
-            });
+            }).catch(() => setIsLoading(false));
           }}>
           <Text
             style={[
@@ -176,9 +177,9 @@ export default function ArizaListScreen({ navigation }) {
             setDurum('Acik');
             setIsLoading(true);
             getArizaKayitlari(oncuToken, { factoryNo: 2, durum: 'Acik', pageSize: 50 }).then((res) => {
-              if (res.success) setKayitlar(res.data || []);
+              if (Array.isArray(res)) setKayitlar(res);
               setIsLoading(false);
-            });
+            }).catch(() => setIsLoading(false));
           }}>
           <View style={styles.filterTabBadge}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FBBF24' }} />
@@ -198,9 +199,9 @@ export default function ArizaListScreen({ navigation }) {
             setDurum('Cozuldu');
             setIsLoading(true);
             getArizaKayitlari(oncuToken, { factoryNo: 2, durum: 'Cozuldu', pageSize: 50 }).then((res) => {
-              if (res.success) setKayitlar(res.data || []);
+              if (Array.isArray(res)) setKayitlar(res);
               setIsLoading(false);
-            });
+            }).catch(() => setIsLoading(false));
           }}>
           <View style={styles.filterTabBadge}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.success }} />

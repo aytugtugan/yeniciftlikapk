@@ -36,10 +36,10 @@ export default function ArizaDetailScreen({ navigation, route }) {
     try {
       setError(null);
       const response = await getArizaKayitById(oncuToken, id);
-      if (response.success) {
-        setKayit(response.data);
+      if (response && response.id) {
+        setKayit(response);
       } else {
-        setError(response.message || 'Veriler yüklenemedi');
+        setError('Veriler yüklenemedi');
       }
     } catch (err) {
       setError(err.message);
@@ -66,19 +66,15 @@ export default function ArizaDetailScreen({ navigation, route }) {
     setIsResolving(true);
     try {
       const response = await resolveArizaKayit(oncuToken, id, cozumuValue.trim());
-      if (response.success) {
-        Alert.alert('Başarılı', 'Arıza kaydı başarıyla çözüldü.', [
-          {
-            text: 'Tamam',
-            onPress: () => {
-              setShowResolveModal(false);
-              loadData();
-            },
+      Alert.alert('Başarılı', 'Arıza kaydı başarıyla çözüldü.', [
+        {
+          text: 'Tamam',
+          onPress: () => {
+            setShowResolveModal(false);
+            loadData();
           },
-        ]);
-      } else {
-        Alert.alert('Hata', response.message || 'İşlem başarısız oldu');
-      }
+        },
+      ]);
     } catch (err) {
       Alert.alert('Hata', err.message || 'Bir hata oluştu');
     } finally {
@@ -188,7 +184,7 @@ export default function ArizaDetailScreen({ navigation, route }) {
             </View>
             <Text style={styles.cardValue}>{kayit.arizaNedeni}</Text>
             <Text style={styles.cardMeta}>
-              Açıldı: {formatDate(kayit.acildiTarih)}
+              Açıldı: {formatDate(kayit.kayitTarihiSaat)}
             </Text>
           </View>
 
@@ -200,9 +196,9 @@ export default function ArizaDetailScreen({ navigation, route }) {
                 <Text style={styles.cardTitle}>Çözüm Açıklaması</Text>
               </View>
               <Text style={styles.cardValue}>{kayit.arizaCozumu}</Text>
-              {kayit.captilidiTarih && (
+              {kayit.cozumTarihiSaat && (
                 <Text style={styles.cardMeta}>
-                  Çözüldü: {formatDate(kayit.captilidiTarih)}
+                  Çözüldü: {formatDate(kayit.cozumTarihiSaat)}
                 </Text>
               )}
             </View>
