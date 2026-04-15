@@ -12,7 +12,7 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Spacing, Radius, Shadows } from '../theme';
@@ -23,11 +23,12 @@ import {
   createDolumBull,
 } from '../api/formsApi';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { VARDIYA_OPTIONS, VARDIYA_DEFS, getVardiyaSaat, getCurrentVardiya } from '../utils/vardiya';
+import { VARDIYA_OPTIONS, VARDIYA_DEFS, VARDIYA_ORDER, getVardiyaSaat, getCurrentVardiya } from '../utils/vardiya';
+import { toLocalDateStr, todayStr } from '../utils/dateUtils';
 
 const DRAFTS_KEY = '@bull_dolum_drafts';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => todayStr();
 const nowTime = () => {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00`;
@@ -107,10 +108,12 @@ async function removeDraft(draftId) {
 }
 
 // ── Vardiya Selector ─────────────────────────────────────────
-function VardiyaSelector({ value }) {
+function VardiyaSelector({ value, editable, onPress }) {
   const def = value ? VARDIYA_DEFS[value] : null;
+  const Wrapper = editable ? TouchableOpacity : View;
+  const wrapperProps = editable ? { activeOpacity: 0.7, onPress } : {};
   return (
-    <View style={[styles.vardiyaBanner, def && { borderColor: def.color, backgroundColor: def.bgColor }]}>
+    <Wrapper {...wrapperProps} style={[styles.vardiyaBanner, def && { borderColor: def.color, backgroundColor: def.bgColor }]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={[styles.vardiyaBadge, def && { backgroundColor: def.color }]}>
           <Text style={styles.vardiyaBadgeText}>{value || '?'}</Text>
@@ -125,43 +128,53 @@ function VardiyaSelector({ value }) {
         </View>
       </View>
       <View style={{ backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 }}>
-        <Text style={{ fontSize: 9, fontWeight: '700', color: def?.color || Colors.textTertiary }}>OTOMATİK</Text>
+        <Text style={{ fontSize: 9, fontWeight: '700', color: def?.color || Colors.textTertiary }}>{editable ? 'SEÇ ✎' : 'OTOMATİK'}</Text>
       </View>
-    </View>
+    </Wrapper>
   );
 }
 
 // ── Form Field ───────────────────────────────────────────────
-function FormField({ field, value, onChange, onDatePress, onTimePress, disabled }) {
+function FormField({ field, value, onChange, onDatePress, onTimePress, onVardiyaPress, pastDateMode, disabled }) {
   if (field.type === 'vardiya') {
     return (
       <View style={styles.fieldWrap}>
         <Text style={styles.fieldLabel}>{field.label}{field.required ? ' *' : ''}</Text>
-        <VardiyaSelector value={value || ''} />
+        <VardiyaSelector value={value || ''} editable={pastDateMode} onPress={onVardiyaPress} />
       </View>
     );
   }
   if (field.type === 'date') {
+    const content = (
+      <View style={[styles.input, !pastDateMode && styles.inputDisabled]}>
+        <Text style={value ? styles.inputText : styles.placeholderText}>
+          {value ? formatTR(value) : 'Tarih seçin'} {pastDateMode ? ' ✎' : ''}
+        </Text>
+      </View>
+    );
     return (
       <View style={styles.fieldWrap}>
         <Text style={styles.fieldLabel}>{field.label}{field.required ? ' *' : ''}</Text>
-        <View style={[styles.input, styles.inputDisabled]}>
-          <Text style={value ? styles.inputText : styles.placeholderText}>
-            {value ? formatTR(value) : 'Tarih seçin'}
-          </Text>
-        </View>
+        {pastDateMode ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={() => onDatePress?.(field.key, value)}>{content}</TouchableOpacity>
+        ) : content}
       </View>
     );
   }
   if (field.type === 'time') {
+    const content = (
+      <View style={[styles.input, !pastDateMode && styles.inputDisabled]}>
+        <Text style={value ? styles.inputText : styles.placeholderText}>
+          {value ? value.substring(0, 5) : 'HH:mm'} {pastDateMode ? ' ✎' : ''}
+        </Text>
+      </View>
+    );
     return (
       <View style={styles.fieldWrap}>
         <Text style={styles.fieldLabel}>{field.label}</Text>
-        <View style={[styles.input, styles.inputDisabled]}>
-          <Text style={value ? styles.inputText : styles.placeholderText}>
-            {value ? value.substring(0, 5) : 'HH:mm'}
-          </Text>
-        </View>
+        {pastDateMode ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={() => onTimePress?.(field.key, value)}>{content}</TouchableOpacity>
+        ) : content}
       </View>
     );
   }
@@ -271,6 +284,7 @@ export default function BullDolumFormScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const scrollRef = useRef(null);
+  const insets = useSafeAreaInsets();
 
   const draftIdParam = route.params?.draftId || null;
   const [draftId, setDraftId] = useState(draftIdParam || `draft_${Date.now()}`);
@@ -323,6 +337,9 @@ export default function BullDolumFormScreen() {
   const completedSteps = STEPS.filter(s => savedIds[s.key] !== null).map(s => s.key);
   const savedBullCount = [savedIds.bull1, savedIds.bull2, savedIds.bull3].filter(Boolean).length;
 
+  // Past date mode
+  const [pastDateMode, setPastDateMode] = useState(false);
+
   // Date picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerField, setDatePickerField] = useState(null);
@@ -332,6 +349,9 @@ export default function BullDolumFormScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timePickerField, setTimePickerField] = useState(null);
   const [pendingTime, setPendingTime] = useState(new Date());
+
+  // Vardiya picker state
+  const [showVardiyaPicker, setShowVardiyaPicker] = useState(false);
 
   const currentStepDef = STEPS[currentStep];
   const currentFields = getFieldsForStep(currentStepDef.key);
@@ -352,7 +372,7 @@ export default function BullDolumFormScreen() {
   };
 
   const confirmDate = () => {
-    const sel = pendingDate.toISOString().split('T')[0];
+    const sel = toLocalDateStr(pendingDate);
     updateField(datePickerField, sel);
     setShowDatePicker(false);
   };
@@ -361,7 +381,7 @@ export default function BullDolumFormScreen() {
     if (Platform.OS === 'android') {
       setShowDatePicker(false);
       if (event.type === 'set' && date) {
-        updateField(datePickerField, date.toISOString().split('T')[0]);
+        updateField(datePickerField, toLocalDateStr(date));
       }
       return;
     }
@@ -656,17 +676,44 @@ export default function BullDolumFormScreen() {
               fields={currentFields}
             />
           ) : (
-            currentFields.map(field => (
-              <FormField
-                key={field.key}
-                field={field}
-                value={currentData[field.key]}
-                onChange={(val) => updateField(field.key, val)}
-                onDatePress={handleDatePress}
-                onTimePress={handleTimePress}
-                disabled={isCurrentSaved}
-              />
-            ))
+            <>
+              {/* Past date toggle */}
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 8, marginBottom: 8 }}
+                onPress={() => {
+                  const next = !pastDateMode;
+                  setPastDateMode(next);
+                  if (!next) {
+                    const currentV = getCurrentVardiya();
+                    updateField('vardiya', currentV);
+                    updateField('tarih', today());
+                    updateField('saat', getVardiyaSaat(currentV) || nowTime());
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{ width: 40, height: 22, borderRadius: 11, backgroundColor: pastDateMode ? currentStepDef.color : '#D1D5DB', justifyContent: 'center', paddingHorizontal: 2 }}>
+                  <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: pastDateMode ? 'flex-end' : 'flex-start' }} />
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: pastDateMode ? currentStepDef.color : Colors.textSecondary }}>
+                  Geçmişe Yönelik Kayıt
+                </Text>
+              </TouchableOpacity>
+
+              {currentFields.map(field => (
+                <FormField
+                  key={field.key}
+                  field={field}
+                  value={currentData[field.key]}
+                  onChange={(val) => updateField(field.key, val)}
+                  onDatePress={handleDatePress}
+                  onTimePress={handleTimePress}
+                  onVardiyaPress={() => setShowVardiyaPicker(true)}
+                  pastDateMode={pastDateMode}
+                  disabled={isCurrentSaved}
+                />
+              ))}
+            </>
           )}
 
           {/* Date Picker - moved outside ScrollView */}
@@ -692,13 +739,13 @@ export default function BullDolumFormScreen() {
             </View>
           )}
 
-          <View style={{ height: 120 }} />
+          <View style={{ height: 120 + Math.max(insets.bottom, Spacing.md) }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
       {/* Bottom Actions */}
       {!allDone && (
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
           {canGoBack && (
             <TouchableOpacity
               style={styles.prevBtn}
@@ -868,6 +915,32 @@ export default function BullDolumFormScreen() {
         </View>
         </Modal>
       )}
+
+      {/* Vardiya Picker */}
+      {showVardiyaPicker && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowVardiyaPicker(false)}>
+          <TouchableOpacity style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)' }}
+            activeOpacity={1} onPress={() => setShowVardiyaPicker(false)}>
+            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '75%', ...Shadows.md }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 12, textAlign: 'center' }}>Vardiya Seç</Text>
+              {VARDIYA_ORDER.map(v => {
+                const d = VARDIYA_DEFS[v];
+                const sel = v === currentData.vardiya;
+                return (
+                  <TouchableOpacity key={v} onPress={() => { updateField('vardiya', v); setShowVardiyaPicker(false); }}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14,
+                      borderRadius: 10, marginBottom: 6, backgroundColor: sel ? (d?.bgColor || '#EEF2FF') : '#F9FAFB',
+                      borderWidth: sel ? 1.5 : 0, borderColor: sel ? (d?.color || currentStepDef.color) : 'transparent' }}>
+                    <Text style={{ fontSize: 15, fontWeight: sel ? '700' : '500', color: sel ? (d?.color || currentStepDef.color) : Colors.textPrimary }}>
+                      {v} Vardiyası ({d?.baslangic}–{d?.bitis})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -946,7 +1019,7 @@ const styles = StyleSheet.create({
 
   bottomBar: {
     flexDirection: 'row', paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md, paddingBottom: Platform.OS === 'ios' ? 34 : Spacing.md,
+    paddingVertical: Spacing.md,
     backgroundColor: Colors.bgWhite, borderTopWidth: 0.5, borderTopColor: Colors.borderLight,
     gap: Spacing.sm, ...Shadows.md,
   },

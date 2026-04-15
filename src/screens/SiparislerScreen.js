@@ -1,14 +1,51 @@
-import React, { useState, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
-  ActivityIndicator, Modal, RefreshControl, StatusBar,
+  ActivityIndicator, Modal, RefreshControl, StatusBar, Platform,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import SimpleIcon from '../components/SimpleIcon';
-import { Colors, Shadows } from '../theme';
+import { Colors } from '../theme';
 import { AppDataContext } from '../context/AppDataContext';
-import { getSiparisler } from '../api/oncuApi';
+import { getSiparisler, getCariDetay } from '../api/oncuApi';
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'Tümü' },
+  { value: '1', label: 'Devam Ediyor' },
+  { value: '4', label: 'Tamamlandı' },
+];
+
+const toDateStr = (d) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const TR_MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+const formatTRShort = (dateStr) => {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-');
+  return `${parseInt(d)} ${TR_MONTHS[parseInt(m) - 1]} ${y}`;
+};
+
+const formatDateFull = (dateStr) => {
+  if (!dateStr) return '-';
+  try {
+    const raw = dateStr.includes('T') ? dateStr : dateStr + 'T00:00:00';
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch { return dateStr; }
+};
+
+const formatMiktar = (val) => {
+  if (val === null || val === undefined) return '-';
+  if (val === 0) return '0';
+  return val.toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
 
 export default function SiparislerScreen() {
   const navigation = useNavigation();
@@ -16,277 +53,476 @@ export default function SiparislerScreen() {
   const insets = useSafeAreaInsets();
   const { oncuToken } = useContext(AppDataContext);
 
-  const [activeTab, setActiveTab] = useState(route.params?.mode || 'all');
+  const todayStr = toDateStr(new Date());
+  const monthStartStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
+
+  // Filter UI state
+  const [status, setStatus] = useState('');
+  const [cariKodu, setCariKodu] = useState(route.params?.cariKodu || '');
+  const [siparisNo, setSiparisNo] = useState('');
+  const [startDate, setStartDate] = useState(monthStartStr);
+  const [endDate, setEndDate] = useState(todayStr);
+  const [showStatusPicker, setShowStatusPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(null); // 'start' | 'end' | null
+  const [pendingDate, setPendingDate] = useState(null);
+
+  // Applied filter ref (sent to API)
+  const appliedRef = useRef({
+    status: '',
+    cariKodu: route.params?.cariKodu || '',
+    siparisNo: '',
+    startDate: monthStartStr,
+    endDate: todayStr,
+  });
+
+  // Data state
   const [orders, setOrders] = useState([]);
   const [totalRows, setTotalRows] = useState(0);
   const [page, setPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-
-  const filterCustomer = route.params?.musteriAdi || '';
-  const isFilteredByCustomer = filterCustomer.length > 0;
 
   const pageSize = 50;
   const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 1;
 
-  const loadOrders = useCallback(async (pageNum, refresh = false) => {
-    if (!oncuToken) return;
-    if (refresh) setIsRefreshing(true);
-    else setIsLoading(true);
+  // Cari adı cache
+  const cariAdiCache = useRef({});
 
+  const loadOrders = useCallback(async (pageNum, isRefresh = false) => {
+    if (!oncuToken) return;
+    if (isRefresh) setIsRefreshing(true);
+    else setIsLoading(true);
+    const f = appliedRef.current;
     try {
       const data = await getSiparisler(oncuToken, {
         page: pageNum,
         pageSize,
-        status: activeTab === 'all' ? undefined : activeTab,
-        musteriAdi: filterCustomer || searchQuery.trim() || undefined,
+        status: f.status || undefined,
+        cariKodu: f.cariKodu.trim() || undefined,
+        siparisNo: f.siparisNo.trim() || undefined,
+        startDate: f.startDate || undefined,
+        endDate: f.endDate || undefined,
       });
-      setOrders(data?.items || []);
+      const items = data?.items || [];
+      setOrders(items);
       setTotalRows(data?.totalRows || 0);
       setPage(pageNum);
+
+      // Cari adlarını arka planda çek
+      const uniqueCaris = [...new Set(items.map(i => i.cariKodu).filter(Boolean))];
+      const missing = uniqueCaris.filter(c => !cariAdiCache.current[c]);
+      if (missing.length > 0) {
+        const results = await Promise.allSettled(
+          missing.map(c => getCariDetay(oncuToken, c))
+        );
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled' && r.value?.cariAdi) {
+            cariAdiCache.current[missing[idx]] = r.value.cariAdi;
+          }
+        });
+      }
+      // Her zaman cache'deki cari adlarını uygula
+      setOrders(prev => prev.map(o => ({
+        ...o,
+        cariAdi: cariAdiCache.current[o.cariKodu] || '',
+      })));
     } catch (err) {
       console.log('Siparişler yükleme hatası:', err);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [oncuToken, activeTab, searchQuery, filterCustomer]);
+  }, [oncuToken]);
 
   useEffect(() => { loadOrders(1); }, [loadOrders]);
 
-  const handleRefresh = () => loadOrders(1, true);
+  const handleGetir = () => {
+    appliedRef.current = { status, cariKodu, siparisNo, startDate, endDate };
+    loadOrders(1);
+  };
+  const handleYenile = () => loadOrders(page, true);
+  const handleTemizle = () => {
+    setStatus(''); setCariKodu(''); setSiparisNo('');
+    setStartDate(monthStartStr); setEndDate(todayStr);
+    appliedRef.current = { status: '', cariKodu: '', siparisNo: '', startDate: monthStartStr, endDate: todayStr };
+    loadOrders(1);
+  };
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages && newPage !== page) loadOrders(newPage);
   };
-  const handleSearch = () => { loadOrders(1); setShowSearch(false); };
 
-  const formatDate = (dateStr) => {
-    try {
-      return new Date(dateStr).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
-    } catch { return dateStr; }
-  };
+  const selectedStatusLabel = STATUS_OPTIONS.find(o => o.value === status)?.label || 'Tümü';
 
-  const renderOrderItem = ({ item }) => {
+  const renderRow = ({ item, index }) => {
     const isCompleted = !item.devamEdiyor;
     return (
       <TouchableOpacity
-        style={[styles.orderItem, { borderBottomColor: Colors.borderLight }]}
+        style={[styles.tableRow, { backgroundColor: index % 2 === 0 ? '#FFFFFF' : '#FAFAFA' }]}
         onPress={() => navigation.navigate('SiparisDetay', { siparisNo: item.siparisNo })}
         activeOpacity={0.7}>
-        <View style={[styles.avatar, { backgroundColor: `${Colors.brandPrimary}15` }]}>
-          <Text style={[styles.avatarText, { color: Colors.brandPrimary }]}>
-            {item.musteriAdi?.charAt(0).toUpperCase() || '?'}
-          </Text>
-        </View>
-        <View style={styles.orderContent}>
-          <View style={styles.orderHeader}>
-            <Text style={styles.customerName} numberOfLines={1}>{item.musteriAdi || 'Bilinmiyor'}</Text>
-            <Text style={styles.orderDate}>{formatDate(item.siparisTarihi)}</Text>
-          </View>
-          <View style={styles.orderMeta}>
-            <Text style={styles.orderNo}>#{item.siparisNo}</Text>
-            <Text style={styles.dot}>•</Text>
-            <Text style={styles.factory}>{item.fabrikaAdi || '-'}</Text>
-          </View>
-        </View>
-        <View style={[styles.statusBadge, {
-          backgroundColor: isCompleted ? '#E8F5E9' : '#FFF8E1',
-        }]}>
-          <View style={[styles.statusDot, {
-            backgroundColor: isCompleted ? '#4CAF50' : '#FF9800',
-          }]} />
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  const TabButton = ({ tab, label }) => {
-    const isActive = activeTab === tab;
-    return (
-      <TouchableOpacity
-        style={[styles.tabButton, isActive && { borderBottomColor: Colors.brandPrimary, borderBottomWidth: 2 }]}
-        onPress={() => { setActiveTab(tab); setPage(1); }}
-        activeOpacity={0.7}>
-        <Text style={[styles.tabText, { color: isActive ? Colors.brandPrimary : Colors.textTertiary },
-          isActive && styles.tabTextActive]}>
-          {label}
+        <Text style={[styles.cell, styles.colNo]} numberOfLines={1}>{item.siparisNo}</Text>
+        <Text style={[styles.cell, styles.colMusteri]} numberOfLines={1}>{item.cariKodu}</Text>
+        <Text style={[styles.cell, styles.colCariAdi]} numberOfLines={1}>{item.cariAdi || '-'}</Text>
+        <Text style={[styles.cell, styles.colOdeme]} numberOfLines={1}>{item.odemePlani || '-'}</Text>
+        <Text style={[styles.cell, styles.colTarih]} numberOfLines={1}>{formatDateFull(item.siparisTarihi)}</Text>
+        <Text style={[styles.cell, styles.colMiktar, { textAlign: 'right' }]} numberOfLines={1}>
+          {formatMiktar(item.toplamSiparisMiktari)}
         </Text>
+        <View style={[styles.cell, styles.colDurum]}>
+          <View style={[styles.statusBadge, { backgroundColor: isCompleted ? '#E8F5E9' : '#FFF8E1' }]}>
+            <View style={[styles.statusDot, { backgroundColor: isCompleted ? '#4CAF50' : '#FF9800' }]} />
+            <Text style={[styles.statusText, { color: isCompleted ? '#2E7D32' : '#E65100' }]}>
+              {isCompleted ? 'Tamamlandı' : 'Devam Ediyor'}
+            </Text>
+          </View>
+        </View>
       </TouchableOpacity>
     );
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <SimpleIcon name="arrow_back_ios" size={22} color={Colors.textPrimary} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <SimpleIcon name="arrow-back" size={22} color="#1A1A1A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isFilteredByCustomer ? 'Müşteri Siparişleri' : 'Siparişler'}
-        </Text>
-        <TouchableOpacity style={styles.searchButton} onPress={() => setShowSearch(true)} activeOpacity={0.7}>
-          <SimpleIcon name="search" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Siparişler</Text>
+        <View style={styles.backBtn} />
       </View>
 
-      <View style={styles.tabBar}>
-        <TabButton tab="all" label="Tümü" />
-        <TabButton tab="devam" label="Devam Eden" />
-        <TabButton tab="tamam" label="Tamamlanan" />
+      {/* Filter Panel */}
+      <View style={styles.filterPanel}>
+        <View style={styles.filterRow}>
+          {/* DURUM */}
+          <View style={styles.filterField}>
+            <Text style={styles.filterLabel}>DURUM</Text>
+            <TouchableOpacity style={styles.filterSelect} onPress={() => setShowStatusPicker(true)} activeOpacity={0.7}>
+              <Text style={styles.filterSelectText}>{selectedStatusLabel}</Text>
+              <SimpleIcon name="arrow-drop-down" size={20} color="#666" />
+            </TouchableOpacity>
+          </View>
+          {/* CARİ KODU */}
+          <View style={[styles.filterField, { flex: 2 }]}>
+            <Text style={styles.filterLabel}>CARİ KODU</Text>
+            <TextInput
+              style={styles.filterInput}
+              value={cariKodu}
+              onChangeText={setCariKodu}
+              placeholder="Cari kodu..."
+              placeholderTextColor="#AAA"
+              autoCapitalize="characters"
+              returnKeyType="search"
+              onSubmitEditing={handleGetir}
+            />
+          </View>
+          {/* SİPARİŞ NO */}
+          <View style={styles.filterField}>
+            <Text style={styles.filterLabel}>SİPARİŞ NO</Text>
+            <TextInput
+              style={styles.filterInput}
+              value={siparisNo}
+              onChangeText={setSiparisNo}
+              placeholder="Sipariş no..."
+              placeholderTextColor="#AAA"
+              autoCapitalize="characters"
+              returnKeyType="search"
+              onSubmitEditing={handleGetir}
+            />
+          </View>
+        </View>
+        <View style={styles.filterRow}>
+          {/* Başlangıç */}
+          <View style={styles.filterField}>
+            <Text style={styles.filterLabel}>BAŞLANGIÇ</Text>
+            <TouchableOpacity
+              style={styles.filterSelect}
+              onPress={() => { setPendingDate(startDate ? new Date(startDate + 'T00:00:00') : new Date()); setShowDatePicker('start'); }}
+              activeOpacity={0.7}>
+              <Text style={[styles.filterSelectText, !startDate && { color: '#AAA' }]}>{startDate ? formatTRShort(startDate) : 'Seçiniz'}</Text>
+              <SimpleIcon name="event" size={15} color="#666" />
+            </TouchableOpacity>
+          </View>
+          {/* Bitiş */}
+          <View style={styles.filterField}>
+            <Text style={styles.filterLabel}>BİTİŞ</Text>
+            <TouchableOpacity
+              style={styles.filterSelect}
+              onPress={() => { setPendingDate(endDate ? new Date(endDate + 'T00:00:00') : new Date()); setShowDatePicker('end'); }}
+              activeOpacity={0.7}>
+              <Text style={[styles.filterSelectText, !endDate && { color: '#AAA' }]}>{endDate ? formatTRShort(endDate) : 'Seçiniz'}</Text>
+              <SimpleIcon name="event" size={15} color="#666" />
+            </TouchableOpacity>
+          </View>
+          {/* Buttons */}
+          <View style={[styles.filterField, { flex: 2, flexDirection: 'row', alignItems: 'flex-end', gap: 8 }]}>
+            <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={handleGetir} activeOpacity={0.8}>
+              <SimpleIcon name="search" size={15} color="#FFF" />
+              <Text style={styles.btnPrimaryText}>Getir</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, styles.btnOutline]} onPress={handleYenile} activeOpacity={0.8}>
+              <SimpleIcon name="refresh" size={15} color="#444" />
+              <Text style={styles.btnOutlineText}>Yenile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, styles.btnOutline]} onPress={handleTemizle} activeOpacity={0.8}>
+              <SimpleIcon name="close" size={13} color="#444" />
+              <Text style={styles.btnOutlineText}>Temizle</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
+      {/* Table Header */}
+      <View style={styles.tableHeader}>
+        <Text style={[styles.cellHeader, styles.colNo]}>FİŞ NO</Text>
+        <Text style={[styles.cellHeader, styles.colMusteri]}>CARİ KODU</Text>
+        <Text style={[styles.cellHeader, styles.colCariAdi]}>CARİ ADI</Text>
+        <Text style={[styles.cellHeader, styles.colOdeme]}>ÖDEME PLANI</Text>
+        <Text style={[styles.cellHeader, styles.colTarih]}>TARİH</Text>
+        <Text style={[styles.cellHeader, styles.colMiktar, { textAlign: 'right' }]}>TOPLAM MİKTAR</Text>
+        <Text style={[styles.cellHeader, styles.colDurum]}>DURUM</Text>
+      </View>
+
+      {/* Table Body */}
+      {isLoading && orders.length === 0 ? (
+        <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.brandPrimary} />
         </View>
       ) : (
         <FlatList
           data={orders}
-          renderItem={renderOrderItem}
-          keyExtractor={item => item.siparisNo}
-          contentContainerStyle={styles.listContent}
+          renderItem={renderRow}
+          keyExtractor={item => String(item.siparisNo)}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh}
-              tintColor={Colors.brandPrimary} colors={[Colors.brandPrimary]} />
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleYenile}
+              colors={[Colors.brandPrimary]}
+              tintColor={Colors.brandPrimary}
+            />
           }
           ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <SimpleIcon name="inbox" size={64} color={Colors.borderLight} />
-              <Text style={styles.emptyTitle}>Sipariş bulunamadı</Text>
-              <Text style={styles.emptySubtitle}>Bu kategoride sipariş yok</Text>
+            <View style={styles.center}>
+              <SimpleIcon name="inbox" size={56} color="#CCC" />
+              <Text style={styles.emptyText}>Sipariş bulunamadı</Text>
             </View>
           }
         />
       )}
 
-      {!isLoading && totalRows > 0 && (
+      {/* Pagination Footer */}
+      {totalRows > 0 && (
         <View style={styles.pagination}>
-          <View style={styles.paginationLeft}>
-            <Text style={styles.paginationText}>
-              {`${((page - 1) * pageSize) + 1}-${Math.min(page * pageSize, totalRows)}`}
-              <Text style={{ color: Colors.textPrimary, fontWeight: '600' }}> / {totalRows}</Text>
+          <Text style={styles.paginationInfo}>
+            Toplam{' '}<Text style={{ fontWeight: '700', color: '#1A1A1A' }}>{totalRows}</Text>{' '}kayıt
+            {'   '}
+            <Text style={{ color: '#999' }}>
+              {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalRows)}
             </Text>
-          </View>
-          <View style={styles.paginationRight}>
-            <TouchableOpacity style={[styles.paginationBtn, { opacity: page <= 1 ? 0.4 : 1 }]}
+          </Text>
+          <View style={styles.paginationBtns}>
+            <TouchableOpacity
+              style={[styles.pageBtn, { opacity: page <= 1 ? 0.4 : 1 }]}
               onPress={() => handlePageChange(page - 1)} disabled={page <= 1}>
-              <SimpleIcon name="chevron_left" size={24} color={Colors.textPrimary} />
+              <SimpleIcon name="chevron-left" size={22} color="#444" />
             </TouchableOpacity>
             <View style={styles.pageIndicator}>
-              <Text style={styles.pageIndicatorText}>{page}</Text>
+              <Text style={styles.pageIndicatorText}>{page} / {totalPages}</Text>
             </View>
-            <TouchableOpacity style={[styles.paginationBtn, { opacity: page >= totalPages ? 0.4 : 1 }]}
+            <TouchableOpacity
+              style={[styles.pageBtn, { opacity: page >= totalPages ? 0.4 : 1 }]}
               onPress={() => handlePageChange(page + 1)} disabled={page >= totalPages}>
-              <SimpleIcon name="chevron_right" size={24} color={Colors.textPrimary} />
+              <SimpleIcon name="chevron-right" size={22} color="#444" />
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      <Modal visible={showSearch} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowSearch(false)}>
-          <View style={styles.searchModal}>
-            <View style={styles.searchInputContainer}>
-              <SimpleIcon name="search" size={20} color={Colors.textSecondary} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Müşteri ara..."
-                placeholderTextColor={Colors.textSecondary}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-                returnKeyType="search"
-                onSubmitEditing={handleSearch}
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <SimpleIcon name="close" size={20} color={Colors.textSecondary} />
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={styles.searchActions}>
-              <TouchableOpacity style={styles.searchCancelBtn}
-                onPress={() => { setSearchQuery(''); setShowSearch(false); loadOrders(1); }}>
-                <Text style={styles.searchCancelText}>Temizle</Text>
+      {/* Status Picker Modal */}
+      <Modal visible={showStatusPicker} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowStatusPicker(false)}>
+          <View style={styles.pickerSheet}>
+            <Text style={styles.pickerTitle}>Durum Seçin</Text>
+            {STATUS_OPTIONS.map(opt => (
+              <TouchableOpacity
+                key={opt.value}
+                style={styles.pickerOption}
+                onPress={() => { setStatus(opt.value); setShowStatusPicker(false); }}
+                activeOpacity={0.7}>
+                <View style={[styles.pickerRadio, status === opt.value && styles.pickerRadioActive]}>
+                  {status === opt.value && <View style={styles.pickerRadioDot} />}
+                </View>
+                <Text style={[
+                  styles.pickerOptionText,
+                  status === opt.value && { fontWeight: '700', color: Colors.brandPrimary },
+                ]}>
+                  {opt.label}
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.searchBtn, { backgroundColor: Colors.brandPrimary }]}
-                onPress={handleSearch}>
-                <Text style={styles.searchBtnText}>Ara</Text>
-              </TouchableOpacity>
-            </View>
+            ))}
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Date Picker — Android */}
+      {showDatePicker && Platform.OS === 'android' && (
+        <DateTimePicker
+          value={pendingDate || new Date()}
+          mode="date"
+          display="default"
+          onChange={(event, date) => {
+            setShowDatePicker(null);
+            if (event.type === 'dismissed' || !date) { setPendingDate(null); return; }
+            const str = toDateStr(date);
+            if (showDatePicker === 'start') setStartDate(str);
+            else setEndDate(str);
+            setPendingDate(null);
+          }}
+        />
+      )}
+
+      {/* Date Picker — iOS */}
+      {showDatePicker && Platform.OS === 'ios' && (
+        <Modal visible transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.pickerTitle}>Tarih Seçin</Text>
+              <DateTimePicker
+                value={pendingDate || new Date()}
+                mode="date"
+                display="spinner"
+                themeVariant="light"
+                locale="tr"
+                onChange={(_, date) => { if (date) setPendingDate(date); }}
+                style={{ height: 180 }}
+              />
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnOutline, { flex: 1 }]}
+                  onPress={() => { setShowDatePicker(null); setPendingDate(null); }}>
+                  <Text style={styles.btnOutlineText}>İptal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnPrimary, { flex: 1 }]}
+                  onPress={() => {
+                    if (pendingDate) {
+                      const str = toDateStr(pendingDate);
+                      if (showDatePicker === 'start') setStartDate(str);
+                      else setEndDate(str);
+                    }
+                    setShowDatePicker(null); setPendingDate(null);
+                  }}>
+                  <Text style={styles.btnPrimaryText}>Seç</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bgApp },
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  // Header
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: 12, backgroundColor: Colors.bgWhite,
-    borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderBottomWidth: 0.5, borderBottomColor: '#E0E0E0',
   },
-  backButton: { padding: 4, width: 40 },
-  headerTitle: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, flex: 1, textAlign: 'center' },
-  searchButton: { padding: 4, width: 40, alignItems: 'flex-end' },
-  tabBar: {
-    flexDirection: 'row', backgroundColor: Colors.bgWhite,
-    borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
+  backBtn: { width: 38, height: 38, justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: '#1A1A1A', textAlign: 'center' },
+  // Filter Panel
+  filterPanel: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1, borderBottomColor: '#E8E8E8',
+    paddingHorizontal: 12, paddingVertical: 10, gap: 8,
   },
-  tabButton: { flex: 1, paddingVertical: 14, alignItems: 'center' },
-  tabText: { fontSize: 14, fontWeight: '500' },
-  tabTextActive: { fontWeight: '600' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  listContent: { flexGrow: 1 },
-  orderItem: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16,
-    paddingVertical: 14, borderBottomWidth: 0.5, backgroundColor: Colors.bgWhite,
+  filterRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-end' },
+  filterField: { flex: 1, gap: 3 },
+  filterLabel: { fontSize: 10, fontWeight: '700', color: '#888', letterSpacing: 0.5, marginBottom: 2 },
+  filterInput: {
+    height: 36, borderWidth: 1, borderColor: '#DDD', borderRadius: 6,
+    paddingHorizontal: 10, fontSize: 13, color: '#1A1A1A', backgroundColor: '#FAFAFA',
   },
-  avatar: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 18, fontWeight: '700' },
-  orderContent: { flex: 1, marginLeft: 12 },
-  orderHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  customerName: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1, marginRight: 8 },
-  orderDate: { fontSize: 12, color: Colors.textSecondary },
-  orderMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  orderNo: { fontSize: 13, color: Colors.textSecondary },
-  dot: { marginHorizontal: 6, fontSize: 10, color: Colors.textSecondary },
-  factory: { fontSize: 13, color: Colors.textSecondary },
-  statusBadge: { width: 12, height: 12, borderRadius: 6, justifyContent: 'center', alignItems: 'center', marginLeft: 12 },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: Colors.textPrimary, marginTop: 16 },
-  emptySubtitle: { fontSize: 14, marginTop: 4, color: Colors.textSecondary },
+  filterSelect: {
+    height: 36, borderWidth: 1, borderColor: '#DDD', borderRadius: 6,
+    paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', backgroundColor: '#FAFAFA',
+  },
+  filterSelectText: { fontSize: 13, color: '#1A1A1A', flex: 1 },
+  // Buttons
+  btn: {
+    height: 36, borderRadius: 6, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', paddingHorizontal: 10, gap: 4,
+  },
+  btnPrimary: { backgroundColor: '#E53E3E', flex: 1 },
+  btnPrimaryText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
+  btnOutline: { borderWidth: 1, borderColor: '#CCC', flex: 1, backgroundColor: '#FFF' },
+  btnOutlineText: { color: '#444', fontSize: 13, fontWeight: '500' },
+  // Table
+  tableHeader: {
+    flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 9,
+    backgroundColor: '#F0F0F0', borderBottomWidth: 1, borderBottomColor: '#DCDCDC',
+  },
+  cellHeader: { fontSize: 10, fontWeight: '700', color: '#555', letterSpacing: 0.4 },
+  tableRow: {
+    flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 11,
+    borderBottomWidth: 0.5, borderBottomColor: '#EEEEEE', alignItems: 'center',
+  },
+  cell: { fontSize: 13, color: '#1A1A1A' },
+  // Column widths
+  colNo: { width: 130, paddingRight: 8 },
+  colMusteri: { width: 120, paddingRight: 8 },
+  colCariAdi: { flex: 1, paddingRight: 8 },
+  colOdeme: { width: 75, paddingRight: 8 },
+  colTarih: { width: 105, paddingRight: 8 },
+  colMiktar: { width: 115, paddingRight: 8 },
+  colDurum: { width: 120 },
+  // Status badge
+  statusBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 10, alignSelf: 'flex-start',
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusText: { fontSize: 11, fontWeight: '600' },
+  // Center / Empty
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40, gap: 12 },
+  emptyText: { fontSize: 15, color: '#999' },
+  // Pagination
   pagination: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 10, backgroundColor: Colors.bgWhite,
-    borderTopWidth: 0.5, borderTopColor: Colors.borderLight,
+    paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#FFFFFF',
+    borderTopWidth: 0.5, borderTopColor: '#E0E0E0',
   },
-  paginationLeft: { flex: 1 },
-  paginationText: { fontSize: 13, color: Colors.textSecondary },
-  paginationRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  paginationBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
-  pageIndicator: { minWidth: 36, height: 36, borderRadius: 8, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8, backgroundColor: '#F0F0F0' },
-  pageIndicatorText: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start', paddingTop: 100, paddingHorizontal: 20 },
-  searchModal: { borderRadius: 16, padding: 16, backgroundColor: Colors.bgWhite, ...Shadows.md },
-  searchInputContainer: {
-    flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1,
-    borderColor: Colors.borderLight, paddingHorizontal: 14, height: 48, gap: 10, backgroundColor: Colors.bgApp,
+  paginationInfo: { fontSize: 13, color: '#888' },
+  paginationBtns: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  pageBtn: { width: 34, height: 34, justifyContent: 'center', alignItems: 'center', borderRadius: 6 },
+  pageIndicator: {
+    paddingHorizontal: 12, height: 34, justifyContent: 'center', alignItems: 'center',
+    borderRadius: 6, backgroundColor: '#F0F0F0',
   },
-  searchInput: { flex: 1, fontSize: 15, padding: 0, color: Colors.textPrimary },
-  searchActions: { flexDirection: 'row', marginTop: 12, gap: 10 },
-  searchCancelBtn: {
-    flex: 1, height: 44, borderRadius: 10, borderWidth: 1,
-    borderColor: Colors.borderLight, justifyContent: 'center', alignItems: 'center',
+  pageIndicatorText: { fontSize: 13, fontWeight: '600', color: '#1A1A1A' },
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
+  pickerSheet: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20, width: 280, gap: 2 },
+  pickerTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
+  pickerOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: '#F0F0F0',
   },
-  searchCancelText: { fontSize: 15, fontWeight: '500', color: Colors.textSecondary },
-  searchBtn: { flex: 1, height: 44, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  searchBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  pickerRadio: {
+    width: 20, height: 20, borderRadius: 10, borderWidth: 2,
+    borderColor: '#CCC', justifyContent: 'center', alignItems: 'center',
+  },
+  pickerRadioActive: { borderColor: Colors.brandPrimary },
+  pickerRadioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.brandPrimary },
+  pickerOptionText: { fontSize: 15, color: '#333' },
 });

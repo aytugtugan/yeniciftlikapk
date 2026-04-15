@@ -68,20 +68,17 @@ export async function getArizaKayitlari(token, filters = {}) {
 }
 
 /**
- * Belirli bir arıza kaydının detaylarını getirir
- */
-export async function getArizaKayitById(token, id) {
-  return arizaRequest(`/api/v1/ArizaKayitlari/${id}`, token, 'GET');
-}
-
-/**
  * Bir arıza kaydını çözer
  */
-export async function resolveArizaKayit(token, id, arizaCozumu, cozenKullanici) {
+export async function resolveArizaKayit(token, id, data) {
   return arizaRequest(
     `/api/v1/ArizaKayitlari/${id}/coz`,
     token,
     'PUT',
-    { arizaCozumu, cozenKullanici }
+    {
+      arizaCozumu: data.arizaCozumu,
+      cozenKullanici: data.cozenKullanici,
+      kapanisNotu: data.kapanisNotu || '',
+    }
   );
 }

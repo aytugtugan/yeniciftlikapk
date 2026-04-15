@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors, Spacing, Radius, Shadows } from '../theme';
 import SimpleIcon from '../components/SimpleIcon';
 import {
@@ -23,6 +24,7 @@ import {
   updateBullBrix,
   updateDolumBrix,
 } from '../api/formsApi';
+import { toLocalDateStr } from '../utils/dateUtils';
 
 const PURPLE = '#7C3AED';
 const BLUE = '#0095F6';
@@ -43,12 +45,16 @@ const BULL_EDIT_FIELDS = [
   { key: 'bullKKontrolBrix', label: 'K.Kontrol Brix', type: 'number' },
   { key: 'renk', label: 'Renk', type: 'text' },
   { key: 'vardiya', label: 'Vardiya', type: 'vardiya' },
+  { key: 'saat', label: 'Saat', type: 'time' },
+  { key: 'tarih', label: 'Tarih', type: 'date' },
 ];
 const DOLUM_EDIT_FIELDS = [
   { key: 'dolumBrixDegeri', label: 'Dolum Brix Değeri', type: 'number' },
   { key: 'kKontrolBrix', label: 'K.Kontrol Brix', type: 'number' },
   { key: 'renk', label: 'Renk', type: 'text' },
   { key: 'vardiya', label: 'Vardiya', type: 'vardiya' },
+  { key: 'saat', label: 'Saat', type: 'time' },
+  { key: 'tarih', label: 'Tarih', type: 'date' },
 ];
 
 // ── Field row component ──────────────────────────────────────
@@ -75,6 +81,14 @@ export default function BullDolumDetailScreen() {
   const [editSaving, setEditSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Date/time picker state for edit modal
+  const [showEditDatePicker, setShowEditDatePicker] = useState(false);
+  const [editDateField, setEditDateField] = useState(null);
+  const [pendingEditDate, setPendingEditDate] = useState(new Date());
+  const [showEditTimePicker, setShowEditTimePicker] = useState(false);
+  const [editTimeField, setEditTimeField] = useState(null);
+  const [pendingEditTime, setPendingEditTime] = useState(new Date());
+
   if (!group) {
     return (
       <SafeAreaView style={s.container}>
@@ -91,11 +105,29 @@ export default function BullDolumDetailScreen() {
     const fields = type === 'bull' ? BULL_EDIT_FIELDS : DOLUM_EDIT_FIELDS;
     const data = {};
     fields.forEach(f => {
-      const val = item[f.key];
+      let val = item[f.key];
+      if (f.type === 'date' && val) val = val.split('T')[0];
       data[f.key] = (val !== null && val !== undefined) ? String(val) : '';
     });
     setEditData(data);
     setEditModalVisible(true);
+  };
+
+  const handleEditDatePress = (fieldKey, currentValue) => {
+    setEditDateField(fieldKey);
+    setPendingEditDate(currentValue ? new Date(currentValue + 'T00:00:00') : new Date());
+    setShowEditDatePicker(true);
+  };
+
+  const handleEditTimePress = (fieldKey, currentValue) => {
+    setEditTimeField(fieldKey);
+    const now = new Date();
+    if (currentValue) {
+      const parts = currentValue.split(':');
+      now.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+    }
+    setPendingEditTime(now);
+    setShowEditTimePicker(true);
   };
 
   const handleSaveEdit = async () => {
@@ -277,17 +309,48 @@ export default function BullDolumDetailScreen() {
                       <Text style={s.editFieldLabel}>{f.label}</Text>
                       <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
                         {['A', 'B', 'C'].map(v => (
-                          <View
+                          <TouchableOpacity
                             key={v}
                             style={[s.vardiyaBtn, editData[f.key] === v && s.vardiyaBtnActive]}
+                            activeOpacity={0.7}
+                            onPress={() => setEditData(prev => ({ ...prev, [f.key]: v }))}
                           >
                             <Text style={[s.vardiyaText, editData[f.key] === v && s.vardiyaTextActive]}>{v}</Text>
-                            {editData[f.key] === v && (
-                              <Text style={{ fontSize: 8, fontWeight: '700', color: Colors.textTertiary, marginTop: 2 }}>OTOMATİK</Text>
-                            )}
-                          </View>
+                          </TouchableOpacity>
                         ))}
                       </View>
+                    </View>
+                  );
+                }
+                if (f.type === 'date') {
+                  return (
+                    <View key={f.key} style={s.editFieldWrap}>
+                      <Text style={s.editFieldLabel}>{f.label}</Text>
+                      <TouchableOpacity
+                        style={s.editInput}
+                        activeOpacity={0.7}
+                        onPress={() => handleEditDatePress(f.key, editData[f.key])}
+                      >
+                        <Text style={{ fontSize: 15, color: editData[f.key] ? Colors.textPrimary : Colors.textTertiary }}>
+                          {editData[f.key] ? formatTR(editData[f.key]) : 'Tarih seçin'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                }
+                if (f.type === 'time') {
+                  return (
+                    <View key={f.key} style={s.editFieldWrap}>
+                      <Text style={s.editFieldLabel}>{f.label}</Text>
+                      <TouchableOpacity
+                        style={s.editInput}
+                        activeOpacity={0.7}
+                        onPress={() => handleEditTimePress(f.key, editData[f.key])}
+                      >
+                        <Text style={{ fontSize: 15, color: editData[f.key] ? Colors.textPrimary : Colors.textTertiary }}>
+                          {editData[f.key] ? editData[f.key].substring(0, 5) : 'Saat seçin'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   );
                 }
@@ -314,6 +377,106 @@ export default function BullDolumDetailScreen() {
               <View style={{ height: 40 }} />
             </ScrollView>
           </KeyboardAvoidingView>
+
+          {/* Date Picker for Edit Modal */}
+          {showEditDatePicker && Platform.OS === 'android' && (
+            <DateTimePicker
+              value={pendingEditDate}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowEditDatePicker(false);
+                if (event.type === 'set' && date) {
+                  setEditData(prev => ({ ...prev, [editDateField]: toLocalDateStr(date) }));
+                }
+              }}
+            />
+          )}
+          {showEditDatePicker && Platform.OS === 'ios' && (
+            <Modal visible={true} transparent animationType="fade">
+              <View style={s.pickerOverlay}>
+                <View style={s.pickerSheet}>
+                  <Text style={s.pickerTitle}>Tarih Seçin</Text>
+                  <DateTimePicker
+                    value={pendingEditDate}
+                    mode="date"
+                    display="spinner"
+                    themeVariant="light"
+                    locale="tr"
+                    onChange={(e, d) => { if (d) setPendingEditDate(d); }}
+                    style={{ height: 180 }}
+                  />
+                  <View style={s.pickerActions}>
+                    <TouchableOpacity style={s.pickerCancelBtn} onPress={() => setShowEditDatePicker(false)}>
+                      <Text style={s.pickerCancelText}>İptal</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.pickerConfirmBtn, { backgroundColor: PURPLE }]}
+                      onPress={() => {
+                        setEditData(prev => ({ ...prev, [editDateField]: toLocalDateStr(pendingEditDate) }));
+                        setShowEditDatePicker(false);
+                      }}
+                    >
+                      <Text style={s.pickerConfirmText}>Seç</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
+          )}
+
+          {/* Time Picker for Edit Modal */}
+          {showEditTimePicker && Platform.OS === 'android' && (
+            <DateTimePicker
+              value={pendingEditTime}
+              mode="time"
+              display="default"
+              is24Hour={true}
+              onChange={(event, date) => {
+                setShowEditTimePicker(false);
+                if (event.type === 'set' && date) {
+                  const hh = String(date.getHours()).padStart(2, '0');
+                  const mm = String(date.getMinutes()).padStart(2, '0');
+                  setEditData(prev => ({ ...prev, [editTimeField]: `${hh}:${mm}:00` }));
+                }
+              }}
+            />
+          )}
+          {showEditTimePicker && Platform.OS === 'ios' && (
+            <Modal visible={true} transparent animationType="fade">
+              <View style={s.pickerOverlay}>
+                <View style={s.pickerSheet}>
+                  <Text style={s.pickerTitle}>Saat Seçin</Text>
+                  <DateTimePicker
+                    value={pendingEditTime}
+                    mode="time"
+                    display="spinner"
+                    themeVariant="light"
+                    is24Hour={true}
+                    locale="tr"
+                    onChange={(e, d) => { if (d) setPendingEditTime(d); }}
+                    style={{ height: 180 }}
+                  />
+                  <View style={s.pickerActions}>
+                    <TouchableOpacity style={s.pickerCancelBtn} onPress={() => setShowEditTimePicker(false)}>
+                      <Text style={s.pickerCancelText}>İptal</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.pickerConfirmBtn, { backgroundColor: PURPLE }]}
+                      onPress={() => {
+                        const hh = String(pendingEditTime.getHours()).padStart(2, '0');
+                        const mm = String(pendingEditTime.getMinutes()).padStart(2, '0');
+                        setEditData(prev => ({ ...prev, [editTimeField]: `${hh}:${mm}:00` }));
+                        setShowEditTimePicker(false);
+                      }}
+                    >
+                      <Text style={s.pickerConfirmText}>Seç</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
+          )}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -408,4 +571,32 @@ const s = StyleSheet.create({
   vardiyaBtnActive: { borderColor: Colors.brandPrimary, backgroundColor: Colors.brandPrimaryLight },
   vardiyaText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
   vardiyaTextActive: { color: Colors.brandPrimary },
+
+  // Date/time picker overlay
+  pickerOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  pickerSheet: {
+    backgroundColor: Colors.bgWhite, borderRadius: Radius.lg,
+    padding: Spacing.lg, width: '85%', maxWidth: 360,
+  },
+  pickerTitle: {
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
+    textAlign: 'center', paddingVertical: Spacing.sm,
+  },
+  pickerActions: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    marginTop: Spacing.md, gap: Spacing.md,
+  },
+  pickerCancelBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: Radius.sm,
+    backgroundColor: Colors.bgSurface, alignItems: 'center',
+    borderWidth: 1, borderColor: Colors.borderColor,
+  },
+  pickerCancelText: { fontSize: 16, fontWeight: '600', color: Colors.textSecondary },
+  pickerConfirmBtn: {
+    flex: 1, paddingVertical: 12, borderRadius: Radius.sm, alignItems: 'center',
+  },
+  pickerConfirmText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 });

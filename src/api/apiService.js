@@ -67,8 +67,13 @@ export async function getGunlukUretimler(filters = {}) {
   if (filters.endTime) params.append('endTime', filters.endTime);
   if (filters.page) params.append('page', filters.page);
   if (filters.pageSize) params.append('pageSize', filters.pageSize);
-  const res = await fetch(`${BASE_URL}/Uretimler/gunluk-uretimler?${params}`);
-  if (!res.ok) throw new Error(`Günlük üretimler alınamadı: ${res.status}`);
+  const url = `${BASE_URL}/Uretimler/gunluk-uretimler?${params}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = await res.text(); } catch (_) {}
+    throw new Error(`Günlük üretimler alınamadı: ${res.status} ${detail}`);
+  }
   return res.json();
 }
 

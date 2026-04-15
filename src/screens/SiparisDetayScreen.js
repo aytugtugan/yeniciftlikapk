@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SimpleIcon from '../components/SimpleIcon';
 import { Colors, Shadows } from '../theme';
 import { AppDataContext } from '../context/AppDataContext';
-import { getSiparisler, getSiparisDetay, getSiparisSevkiyatlar } from '../api/oncuApi';
+import { getSiparisler, getSiparisDetay, getSiparisSevkiyatlar, getCariDetay } from '../api/oncuApi';
+import { todayStr } from '../utils/dateUtils';
 
 export default function SiparisDetayScreen() {
   const navigation = useNavigation();
@@ -21,6 +22,7 @@ export default function SiparisDetayScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [siparis, setSiparis] = useState(null);
+  const [cariDetay, setCariDetay] = useState(null);
   const [details, setDetails] = useState([]);
   const [sevkiyatlar, setSevkiyatlar] = useState([]);
   const [activeTab, setActiveTab] = useState('products');
@@ -28,17 +30,30 @@ export default function SiparisDetayScreen() {
 
   const loadData = useCallback(async () => {
     if (!siparisNo || !oncuToken) { setLoading(false); return; }
+    const yearStart = '2020-01-01';
+    const today = todayStr();
     try {
       const [siparisRes, detayRes, sevkiyatRes] = await Promise.allSettled([
-        getSiparisler(oncuToken, { siparisNo, pageSize: 1 }),
+        getSiparisler(oncuToken, { siparisNo, pageSize: 1, startDate: yearStart, endDate: today }),
         getSiparisDetay(oncuToken, { siparisNo }),
-        getSiparisSevkiyatlar(oncuToken, { siparisNo }),
+        getSiparisSevkiyatlar(oncuToken, { siparisNo, startDate: yearStart, endDate: today }),
       ]);
+      let cariKodu = null;
       if (siparisRes.status === 'fulfilled' && siparisRes.value?.items?.length > 0) {
-        setSiparis(siparisRes.value.items[0]);
+        const sip = siparisRes.value.items[0];
+        setSiparis(sip);
+        cariKodu = sip.cariKodu;
       }
       if (detayRes.status === 'fulfilled') setDetails(detayRes.value?.items || []);
       if (sevkiyatRes.status === 'fulfilled') setSevkiyatlar(sevkiyatRes.value?.items || []);
+
+      // Cari detay bilgilerini çek
+      if (cariKodu) {
+        try {
+          const cari = await getCariDetay(oncuToken, cariKodu);
+          if (cari) setCariDetay(cari);
+        } catch (_) {}
+      }
     } catch (err) { console.log('Error:', err); }
     finally { setLoading(false); setRefreshing(false); }
   }, [siparisNo, oncuToken]);
@@ -58,7 +73,6 @@ export default function SiparisDetayScreen() {
 
   const displayedProducts = expandedProducts ? details : details.slice(0, 3);
   const isCompleted = siparis && !siparis.devamEdiyor;
-
   if (loading) {
     return (
       <View style={styles.container}>
@@ -95,19 +109,36 @@ export default function SiparisDetayScreen() {
         {/* Customer Card */}
         {siparis && (
           <TouchableOpacity style={styles.customerCard}
-            onPress={() => navigation.navigate('MusteriProfil', { musteriKod: siparis.musteriAdi })}
+            onPress={() => navigation.navigate('MusteriProfil', { musteriKod: siparis.cariKodu })}
             activeOpacity={0.7}>
             <View style={[styles.customerAvatar, { backgroundColor: `${Colors.brandPrimary}15` }]}>
               <Text style={[styles.customerAvatarText, { color: Colors.brandPrimary }]}>
-                {siparis.musteriAdi?.charAt(0).toUpperCase() || '?'}
+                {(cariDetay?.cariAdi || siparis.cariAdi || siparis.cariKodu)?.charAt(0).toUpperCase() || '?'}
               </Text>
             </View>
             <View style={styles.customerInfo}>
-              <Text style={styles.customerName} numberOfLines={1}>{siparis.musteriAdi}</Text>
+              <Text style={styles.customerName} numberOfLines={1}>
+                {cariDetay?.cariAdi || siparis.cariAdi || siparis.cariKodu}
+              </Text>
+              <Text style={styles.customerCode} numberOfLines={1}>{siparis.cariKodu}</Text>
+              {(cariDetay?.telefon || cariDetay?.telNo) ? (
+                <View style={styles.customerDetailRow}>
+                  <SimpleIcon name="phone" size={13} color={Colors.textSecondary} />
+                  <Text style={styles.customerDetailText}>{cariDetay.telefon || cariDetay.telNo}</Text>
+                </View>
+              ) : null}
+              {(cariDetay?.adres || cariDetay?.il) ? (
+                <View style={styles.customerDetailRow}>
+                  <SimpleIcon name="location_on" size={13} color={Colors.textSecondary} />
+                  <Text style={styles.customerDetailText} numberOfLines={1}>
+                    {cariDetay.adres ? cariDetay.adres : [cariDetay.ilce, cariDetay.il].filter(Boolean).join(', ')}
+                  </Text>
+                </View>
+              ) : null}
               {siparis.odemePlani && (
-                <View style={styles.paymentRow}>
-                  <SimpleIcon name="schedule" size={14} color={Colors.textSecondary} />
-                  <Text style={styles.paymentText}>{siparis.odemePlani}</Text>
+                <View style={styles.customerDetailRow}>
+                  <SimpleIcon name="schedule" size={13} color={Colors.textSecondary} />
+                  <Text style={styles.customerDetailText}>{siparis.odemePlani}</Text>
                 </View>
               )}
             </View>
@@ -136,13 +167,13 @@ export default function SiparisDetayScreen() {
             <View style={styles.divider} />
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Toplam Sipariş</Text>
+                <Text style={styles.statLabel}>Toplam Net</Text>
                 <Text style={styles.statValue}>{formatNumber(siparis.toplamSiparisMiktari)}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Fabrika</Text>
-                <Text style={styles.statValue}>{siparis.fabrikaAdi || '-'}</Text>
+                <Text style={styles.statLabel}>Özel Kod</Text>
+                <Text style={styles.statValue}>{siparis.cariOzelKod || '-'}</Text>
               </View>
             </View>
           </View>
@@ -185,16 +216,16 @@ export default function SiparisDetayScreen() {
                 <Text style={styles.productName} numberOfLines={2}>{item.stokAdi || item.stokKodu || '-'}</Text>
                 <View style={styles.productStats}>
                   <View style={styles.productStatCol}>
-                    <Text style={styles.productStatLabel}>Sipariş:</Text>
-                    <Text style={styles.productStatValue}>{formatNumber(item.siparisMiktari)}</Text>
+                    <Text style={styles.productStatLabel}>Miktar:</Text>
+                    <Text style={styles.productStatValue}>{formatNumber(item.siparisMiktari)} {item.birim || ''}</Text>
                   </View>
                   <View style={styles.productStatCol}>
-                    <Text style={styles.productStatLabel}>Giden:</Text>
-                    <Text style={[styles.productStatValue, { color: '#4CAF50' }]}>{formatNumber(item.gidenMiktar)}</Text>
+                    <Text style={styles.productStatLabel}>B.Fiyat:</Text>
+                    <Text style={[styles.productStatValue, { color: '#2196F3' }]}>{formatNumber(item.birimFiyat)}</Text>
                   </View>
                   <View style={styles.productStatCol}>
-                    <Text style={styles.productStatLabel}>Kalan:</Text>
-                    <Text style={styles.productStatValue}>{formatNumber(item.kalanMiktar)}</Text>
+                    <Text style={styles.productStatLabel}>Tutar:</Text>
+                    <Text style={[styles.productStatValue, { color: '#4CAF50' }]}>{formatNumber(item.satirTutar)}</Text>
                   </View>
                 </View>
                 {index < displayedProducts.length - 1 && <View style={styles.itemDivider} />}
@@ -233,7 +264,8 @@ export default function SiparisDetayScreen() {
                     if (item.irsaliyeNo) {
                       navigation.navigate('SevkiyatDetay', {
                         irsaliyeNo: item.irsaliyeNo,
-                        musteriAdi: item.musteriAdi || siparis?.musteriAdi,
+                        musteriAdi: item.musteriAdi || siparis?.cariAdi || siparis?.musteriAdi,
+                        siparisNo: siparisNo,
                       });
                     }
                   }}>
@@ -281,6 +313,9 @@ const styles = StyleSheet.create({
   customerAvatarText: { fontSize: 20, fontWeight: '700' },
   customerInfo: { flex: 1, marginLeft: 12 },
   customerName: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
+  customerCode: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
+  customerDetailRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
+  customerDetailText: { fontSize: 13, color: Colors.textSecondary, flex: 1 },
   paymentRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
   paymentText: { fontSize: 13, color: Colors.textSecondary },
   summaryCard: { marginHorizontal: 16, marginTop: 12, padding: 16, borderRadius: 16, backgroundColor: Colors.bgWhite },

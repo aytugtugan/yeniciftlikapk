@@ -22,8 +22,10 @@
     "react-native-gesture-handler": "^2.30.0",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.24.0",
+    "react-native-share": "^12.2.6",
     "react-native-svg": "^15.15.3",
-    "react-native-vision-camera": "^4.7.3"
+    "react-native-vision-camera": "^4.7.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

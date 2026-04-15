@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Platform } from 'react-native';
-import { checkForUpdate, downloadApk, installApk } from '../services/updateService';
+import { checkForUpdate, downloadApk, installApk, installIOSUpdate } from '../services/updateService';
 
 const MAX_RETRIES = 3;
 
@@ -12,10 +12,8 @@ export function useAppUpdate() {
   const [error, setError] = useState(null);
   const [dismissed, setDismissed] = useState(false);
 
-  // Güncelleme kontrolü
+  // Güncelleme kontrolü — iOS ve Android
   const check = useCallback(async () => {
-    if (Platform.OS !== 'android') return;
-
     try {
       setError(null);
       const info = await checkForUpdate();
@@ -37,7 +35,29 @@ export function useAppUpdate() {
 
   // İndirme ve kurulumu başlat
   const startUpdate = useCallback(async () => {
-    if (!updateInfo?.apkUrl) return;
+    if (!updateInfo) return;
+
+    // iOS: itms-services ile OTA kurulum
+    if (Platform.OS === 'ios') {
+      if (!updateInfo.manifestUrl) {
+        setError('iOS güncelleme manifest dosyası bulunamadı.');
+        return;
+      }
+      try {
+        setInstalling(true);
+        setError(null);
+        await installIOSUpdate(updateInfo.manifestUrl);
+        setInstalling(false);
+        setDismissed(true);
+      } catch (err) {
+        setInstalling(false);
+        setError(err.message || 'iOS güncelleme başarısız');
+      }
+      return;
+    }
+
+    // Android: APK indir ve kur
+    if (!updateInfo.apkUrl) return;
 
     let lastError = null;
 

@@ -23,7 +23,7 @@ export default function ProfileScreen() {
   const [currentVersionName, setCurrentVersionName] = useState('1.0.0');
 
   useEffect(() => {
-    getCurrentVersion().then(v => setCurrentVersionName(v.versionName));
+    getCurrentVersion().then(v => setCurrentVersionName(v?.versionName || '1.0.0')).catch(() => {});
   }, []);
 
   const doDownload = useCallback(async (apkUrl) => {
@@ -91,7 +91,7 @@ export default function ProfileScreen() {
   const username = loggedInUser?.userName || loggedInUser?.username || 'user';
   const role = loggedInUser?.role || 'Kullanıcı';
   const userId = loggedInUser?.userId || '-';
-  const fabrikaAdi = selectedFabrika?.fabrikaAdi || 'Yeni Çiftlik';
+  const fabrikaAdi = selectedFabrika?.fabrikaAdi || 'Yeniçiftlik';
 
   const formatRole = (r) => {
     if (!r) return 'Kullanıcı';
@@ -142,7 +142,7 @@ export default function ProfileScreen() {
           title: checking ? 'Kontrol ediliyor...' : updateInfo ? 'Güncelleme Mevcut!' : 'Güncel',
           subtitle: updateInfo
             ? `v${updateInfo.serverVersionName} hazır — güncelle`
-            : `Yeni Çiftlik Mobil v${currentVersionName}`,
+            : `Yeniçiftlik Mobil v${currentVersionName}`,
           isUpdate: true,
           hasUpdate: !!updateInfo,
         },
@@ -155,7 +155,7 @@ export default function ProfileScreen() {
         {
           icon: 'info-outline',
           title: 'Hakkında',
-          subtitle: `Yeni Çiftlik Mobil v${currentVersionName}`,
+          subtitle: `Yeniçiftlik Mobil v${currentVersionName}`,
         },
         {
           icon: 'help-outline',
@@ -291,7 +291,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         {/* App Version */}
-        <Text style={styles.versionText}>Yeni Çiftlik Mobil v{currentVersionName}</Text>
+        <Text style={styles.versionText}>Yeniçiftlik Mobil v{currentVersionName}</Text>
         <Text style={styles.versionText}>© 2025 Acemoğlu Gıda</Text>
       </ScrollView>
     </View>

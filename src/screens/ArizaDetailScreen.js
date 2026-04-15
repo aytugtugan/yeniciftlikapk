@@ -134,7 +134,7 @@ export default function ArizaDetailScreen({ navigation, route }) {
     );
   }
 
-  const isOpen = kayit.durum === 'Acik';
+  const isOpen = kayit.durum === 'Arizali';
   const durumColor = isOpen ? '#FBBF24' : Colors.success;
   const durumText = isOpen ? 'Açık' : 'Çözüldü';
 

@@ -10,6 +10,8 @@ import {
   Platform,
   RefreshControl,
   Modal,
+  Alert,
+  Dimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -18,6 +20,10 @@ import { ScreenHeader, Chip, EmptyState, SectionCard, DropdownSelector } from '.
 import { CalendarIcon, FactoryIcon, FilterIcon, ChevronDownIcon, ChevronUpIcon } from '../components/Icons';
 import SimpleIcon from '../components/SimpleIcon';
 import { getGunlukUretimler } from '../api/apiService';
+import { VARDIYA_DEFS, VARDIYA_ORDER } from '../utils/vardiya';
+import { toLocalDateStr } from '../utils/dateUtils';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const TR_MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 const formatTR = (dateStr) => {
@@ -26,14 +32,32 @@ const formatTR = (dateStr) => {
   return `${parseInt(d)} ${TR_MONTHS[parseInt(m) - 1]} ${y}`;
 };
 
+/** Saat (HH:MM) → Vardiya harfi (A/B/C). Birebir vardiya saatleri. */
+function getVardiyaForTime(saatDakika) {
+  if (!saatDakika) return null;
+  const [hStr, mStr] = saatDakika.split(':');
+  const totalMins = parseInt(hStr || '0', 10) * 60 + parseInt(mStr || '0', 10);
+  if (totalMins < 8 * 60) return 'C';      // 00:00–07:59 → C
+  if (totalMins < 16 * 60) return 'A';     // 08:00–15:59 → A
+  return 'B';                               // 16:00–23:59 → B
+}
+
 function ProductionRow({ u, isLast }) {
+  const isIhracat = (u.urunKodu || '').includes('_IHR');
   return (
     <View style={[styles.prodRow, !isLast && styles.prodRowBorder]}>
       <View style={styles.prodTimeCol}>
         <Text style={styles.prodTime}>{u.saatDakika || '--:--'}</Text>
       </View>
       <View style={styles.prodInfoCol}>
-        <Text style={styles.prodName} numberOfLines={1}>{u.urunAdi}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.prodName} numberOfLines={1}>{u.urunAdi}</Text>
+          <View style={[styles.marketTag, isIhracat ? styles.marketTagIhracat : styles.marketTagIcPiyasa]}>
+            <Text style={[styles.marketTagText, isIhracat ? styles.marketTagTextIhracat : styles.marketTagTextIcPiyasa]}>
+              {isIhracat ? 'İHR' : 'İÇ'}
+            </Text>
+          </View>
+        </View>
         <Text style={styles.prodCode}>{u.urunKodu}</Text>
       </View>
       <View style={styles.prodQtyCol}>
@@ -56,6 +80,8 @@ const STATION_COLORS = [
 
 function StationSection({ stationName, stationCode, items, totalMiktar, colorIndex }) {
   const palette = STATION_COLORS[colorIndex % STATION_COLORS.length];
+  const ihracatMiktar = items.reduce((s, u) => s + ((u.urunKodu || '').includes('_IHR') ? (u.miktar || 0) : 0), 0);
+  const icPiyasaMiktar = totalMiktar - ihracatMiktar;
   return (
     <View style={styles.stationSection}>
       {/* Station Header */}
@@ -71,6 +97,16 @@ function StationSection({ stationName, stationCode, items, totalMiktar, colorInd
         </View>
         <View style={styles.stationHeaderRight}>
           <Text style={[styles.stationTotal, { color: palette.text }]}>{totalMiktar.toLocaleString('tr-TR')}</Text>
+          <View style={styles.stationMarketRow}>
+            <View style={styles.stationMarketItem}>
+              <View style={[styles.marketDot, { backgroundColor: '#15803D' }]} />
+              <Text style={[styles.stationMarketValue, { color: '#15803D' }]}>{icPiyasaMiktar.toLocaleString('tr-TR')}</Text>
+            </View>
+            <View style={styles.stationMarketItem}>
+              <View style={[styles.marketDot, { backgroundColor: '#B45309' }]} />
+              <Text style={[styles.stationMarketValue, { color: '#B45309' }]}>{ihracatMiktar.toLocaleString('tr-TR')}</Text>
+            </View>
+          </View>
           <Text style={styles.stationCount}>{items.length} kayıt</Text>
         </View>
       </View>
@@ -89,16 +125,44 @@ function StationSection({ stationName, stationCode, items, totalMiktar, colorInd
   );
 }
 
-function SummaryItem({ ozet }) {
+const SUMMARY_ACCENT = '#C0392B';
+
+function SummaryCard({ ozet }) {
+  const isIhracat = (ozet.urunKodu || '').includes('_IHR');
   return (
-    <View style={styles.summaryItem}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.summaryStation}>{ozet.istasyonAdi}</Text>
-        <Text style={styles.summaryProduct}>{ozet.urunAdi}</Text>
+    <View style={styles.summaryCard}>
+      {/* İstasyon */}
+      <Text style={styles.summaryCardStation} numberOfLines={1}>{ozet.istasyonAdi}</Text>
+      {/* Ürün + etiket + toplam */}
+      <View style={styles.summaryCardHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.summaryCardProduct} numberOfLines={2}>{ozet.urunAdi}</Text>
+          <View style={[styles.marketTag, isIhracat ? styles.marketTagIhracat : styles.marketTagIcPiyasa, { alignSelf: 'flex-start', marginTop: 3 }]}>
+            <Text style={[styles.marketTagText, isIhracat ? styles.marketTagTextIhracat : styles.marketTagTextIcPiyasa]}>
+              {isIhracat ? 'İHR' : 'İÇ'}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.summaryCardTotalBox}>
+          <Text style={styles.summaryCardTotalValue}>{ozet.toplam.toLocaleString('tr-TR')}</Text>
+          <Text style={styles.summaryCardTotalLabel}>adet</Text>
+        </View>
       </View>
-      <View style={styles.summaryRight}>
-        <Text style={styles.summaryTotal}>{ozet.toplam.toLocaleString('tr-TR')}</Text>
-        <Text style={styles.summaryCount}>{ozet.kayitSayisi} kayıt</Text>
+      {/* Vardiya progress bars */}
+      <View style={styles.summaryCardBars}>
+        {VARDIYA_ORDER.map(v => {
+          const miktar = ozet.vardiyalar?.[v] || 0;
+          const ratio = ozet.toplam > 0 ? miktar / ozet.toplam : 0;
+          return (
+            <View key={v} style={styles.summaryVardiyaRow}>
+              <Text style={styles.summaryVardiyaLabel}>{v}</Text>
+              <View style={styles.summaryVardiyaBarBg}>
+                <View style={[styles.summaryVardiyaBarFill, { width: `${(ratio * 100).toFixed(1)}%` }]} />
+              </View>
+              <Text style={styles.summaryVardiyaValue}>{miktar.toLocaleString('tr-TR')}</Text>
+            </View>
+          );
+        })}
       </View>
     </View>
   );
@@ -110,10 +174,8 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
   const [summaryUretimler, setSummaryUretimler] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(50);
   const [total, setTotal] = useState(0);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = toLocalDateStr(new Date());
   const [filters, setFilters] = useState({
     istasyonKodu: '', startDate: todayStr, endDate: todayStr, startTime: '', endTime: '',
   });
@@ -124,6 +186,7 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
   const [showFilters, setShowFilters] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryLoaded, setSummaryLoaded] = useState(false);
+  const [selectedVardiya, setSelectedVardiya] = useState(null); // null=hepsi, 'A'|'B'|'C'
 
   const sortUretimler = (arr) =>
     arr.slice().sort((a, b) => {
@@ -134,101 +197,86 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
       } catch { return 0; }
     });
 
-  const fetchUretimler = (pageNum = 1, isRefresh = false) => {
+  const buildParams = (filtersOverride) => {
+    const f = filtersOverride || filters;
+    const p = { fabrikaNo: fabrika.fabrikaKodu };
+    // istasyonKodu filtresini backend'e göndermiyoruz, client-side filtreliyoruz
+    if (f.startDate) p.startDate = f.startDate;
+    if (f.endDate) p.endDate = f.endDate;
+    if (f.startTime) p.startTime = f.startTime;
+    if (f.endTime) p.endTime = f.endTime;
+    return p;
+  };
+
+  const applyStationFilter = (rows, filtersOverride) => {
+    const f = filtersOverride || filters;
+    if (!f.istasyonKodu) return rows;
+    const selected = f.istasyonKodu.trim().toLowerCase();
+    return rows.filter(u => {
+      const name = (u.istasyonAdi || '').trim().toLowerCase();
+      return name === selected;
+    });
+  };
+
+  const fetchAllPages = async (baseParams) => {
+    let allItems = [];
+    let page = 1;
+    while (true) {
+      const raw = await getGunlukUretimler({ ...baseParams, page, pageSize: 1000 });
+      const items = Array.isArray(raw) ? raw : (raw?.data ?? raw?.items ?? []);
+      allItems = allItems.concat(items);
+      const serverTotal = raw?.total ?? 0;
+      if (allItems.length >= serverTotal || items.length === 0) break;
+      page++;
+    }
+    return allItems;
+  };
+
+  const fetchData = async (filtersOverride, isRefresh = false) => {
     if (!fabrika) return;
     isRefresh ? setRefreshing(true) : setLoading(true);
-
-    const baseParams = { fabrikaNo: fabrika.fabrikaKodu };
-    if (filters.istasyonKodu) baseParams.istasyonKodu = filters.istasyonKodu;
-    if (filters.startDate) baseParams.startDate = filters.startDate;
-    if (filters.endDate) baseParams.endDate = filters.endDate;
-    if (filters.startTime) baseParams.startTime = filters.startTime;
-    if (filters.endTime) baseParams.endTime = filters.endTime;
-
-    const paginatedParams = { ...baseParams, page: pageNum, pageSize };
-
-    getGunlukUretimler(paginatedParams)
-      .then(pageData => {
-        const pageRows = pageData.data || [];
-        setUretimler(sortUretimler(pageRows));
-        setTotal(pageData.total || 0);
-        setPage(pageData.page || pageNum);
-      })
-      .catch(err => console.error(err))
-      .finally(() => { setLoading(false); setRefreshing(false); });
-  };
-
-  const fetchSummary = () => {
-    if (!fabrika || summaryLoaded || summaryLoading) return;
     setSummaryLoading(true);
-    const baseParams = { fabrikaNo: fabrika.fabrikaKodu };
-    if (filters.istasyonKodu) baseParams.istasyonKodu = filters.istasyonKodu;
-    if (filters.startDate) baseParams.startDate = filters.startDate;
-    if (filters.endDate) baseParams.endDate = filters.endDate;
-    if (filters.startTime) baseParams.startTime = filters.startTime;
-    if (filters.endTime) baseParams.endTime = filters.endTime;
 
-    getGunlukUretimler(baseParams)
-      .then(data => {
-        const allRows = data.data || (Array.isArray(data) ? data : []);
-        setSummaryUretimler(allRows);
-        setSummaryLoaded(true);
-      })
-      .catch(err => console.error(err))
-      .finally(() => setSummaryLoading(false));
+    try {
+      const baseParams = buildParams(filtersOverride);
+      const rawRows = await fetchAllPages(baseParams);
+      const filteredRows = applyStationFilter(rawRows, filtersOverride);
+      const sorted = sortUretimler(filteredRows);
+      setUretimler(sorted);
+      setSummaryUretimler(filteredRows);
+      setTotal(filteredRows.length);
+      setSummaryLoaded(true);
+    } catch (err) {
+      console.error('fetchData error:', err);
+      Alert.alert('Veri Hatası', String(err?.message || err));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      setSummaryLoading(false);
+    }
   };
 
   useEffect(() => {
-    fetchUretimler(1);
-    // Auto-fetch summary for KPI cards
-    setSummaryLoaded(false);
-    setSummaryUretimler([]);
+    fetchData(null);
   }, [fabrika]);
 
-  // Fetch summary data for KPI and Özet tab
-  useEffect(() => {
-    if (!summaryLoaded && !summaryLoading && fabrika) {
-      fetchSummary();
-    }
-  }, [fabrika, summaryLoaded, summaryLoading]);
-
   const handleFilter = () => {
-    setSummaryLoaded(false);
-    setSummaryUretimler([]);
-    fetchUretimler(1);
+    fetchData(filters);
     setShowFilters(false);
   };
   const handleReset = () => {
-    setFilters({ istasyonKodu: '', startDate: todayStr, endDate: todayStr, startTime: '', endTime: '' });
+    const resetFilters = { istasyonKodu: '', startDate: todayStr, endDate: todayStr, startTime: '', endTime: '' };
+    setFilters(resetFilters);
     setShowIstasyonPicker(false);
-    setSummaryLoaded(false);
-    setSummaryUretimler([]);
     setShowFilters(false);
-    setTimeout(() => fetchUretimler(1), 0);
+    fetchData(resetFilters);
   };
 
-  const totalPages = Math.ceil(total / pageSize);
-
-  const gunlukToplam = {};
-  summaryUretimler.forEach(u => {
-    const key = `${u.istasyonKodu}_${u.urunKodu}`;
-    if (!gunlukToplam[key]) {
-      gunlukToplam[key] = {
-        istasyonAdi: u.istasyonAdi, istasyonKodu: u.istasyonKodu,
-        urunAdi: u.urunAdi, urunKodu: u.urunKodu, toplam: 0, kayitSayisi: 0,
-      };
-    }
-    gunlukToplam[key].toplam += u.miktar;
-    gunlukToplam[key].kayitSayisi += 1;
-  });
-
-  const selectedIstasyonLabel = filters.istasyonKodu
-    ? istasyonlar.find(i => i.istasyonKodu === filters.istasyonKodu)?.istasyonAdi || filters.istasyonKodu
-    : '';
+  const selectedIstasyonLabel = filters.istasyonKodu || '';
 
   const istasyonOptions = [
     { key: 'all', value: '', label: 'Tüm İstasyonlar' },
-    ...istasyonlar.map(ist => ({ key: ist.istasyonKodu, value: ist.istasyonKodu, label: `${ist.istasyonAdi} (${ist.istasyonKodu})` })),
+    ...istasyonlar.map(ist => ({ key: ist.istasyonKodu || ist.istasyonAdi, value: ist.istasyonAdi, label: ist.istasyonAdi })),
   ];
 
   const [pendingDate, setPendingDate] = useState(null);
@@ -243,7 +291,7 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
   const handleDateConfirm = () => {
     if (pendingDate && pendingDateField) {
       if (pendingDateField === 'startDate' || pendingDateField === 'endDate') {
-        setFilters(prev => ({ ...prev, [pendingDateField]: pendingDate.toISOString().split('T')[0] }));
+        setFilters(prev => ({ ...prev, [pendingDateField]: toLocalDateStr(pendingDate) }));
       } else {
         const hours = String(pendingDate.getHours()).padStart(2, '0');
         const mins = String(pendingDate.getMinutes()).padStart(2, '0');
@@ -267,23 +315,50 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
     setShowDatePicker(field);
   };
 
+  // Apply vardiya filter for display (must be computed before gunlukToplam)
+  const displayUretimler = selectedVardiya
+    ? uretimler.filter(u => getVardiyaForTime(u.saatDakika) === selectedVardiya)
+    : uretimler;
+  const displaySummaryUretimler = selectedVardiya
+    ? summaryUretimler.filter(u => getVardiyaForTime(u.saatDakika) === selectedVardiya)
+    : summaryUretimler;
+
+  // Özet tab — built from vardiya-filtered data so chips affect summary cards too
+  const gunlukToplam = {};
+  displaySummaryUretimler.forEach(u => {
+    const key = `${u.istasyonKodu}_${u.urunKodu}`;
+    if (!gunlukToplam[key]) {
+      gunlukToplam[key] = {
+        istasyonAdi: u.istasyonAdi, istasyonKodu: u.istasyonKodu,
+        urunAdi: u.urunAdi, urunKodu: u.urunKodu, toplam: 0, kayitSayisi: 0,
+        vardiyalar: { A: 0, B: 0, C: 0 },
+      };
+    }
+    gunlukToplam[key].toplam += (u.miktar || 0);
+    gunlukToplam[key].kayitSayisi += 1;
+    const v = getVardiyaForTime(u.saatDakika);
+    if (v) gunlukToplam[key].vardiyalar[v] += (u.miktar || 0);
+  });
+
   const summaryEntries = Object.values(gunlukToplam);
-  const totalMiktar = summaryUretimler.reduce((s, u) => s + (u.miktar || 0), 0);
+  const totalMiktar = displaySummaryUretimler.reduce((s, u) => s + (u.miktar || 0), 0);
+  const totalIhracat = displaySummaryUretimler.reduce((s, u) => s + ((u.urunKodu || '').includes('_IHR') ? (u.miktar || 0) : 0), 0);
+  const totalIcPiyasa = totalMiktar - totalIhracat;
   const displayGroupCount = summaryEntries.length;
 
   // Group details by station
   const groupedByStation = React.useMemo(() => {
     const groups = {};
-    uretimler.forEach(u => {
+    displayUretimler.forEach(u => {
       const key = u.istasyonKodu || 'other';
       if (!groups[key]) {
         groups[key] = { stationName: u.istasyonAdi || 'Bilinmiyor', stationCode: u.istasyonKodu || '-', items: [], totalMiktar: 0 };
       }
       groups[key].items.push(u);
-      groups[key].totalMiktar += u.miktar || 0;
+      groups[key].totalMiktar += (u.miktar || 0);
     });
     return Object.values(groups);
-  }, [uretimler]);
+  }, [displayUretimler]);
 
   const ListHeader = () => (
     <View>
@@ -306,6 +381,22 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
           <Text style={styles.qStatLabel}>Toplam Üretim</Text>
         </View>
       </View>
+
+      {/* İç Piyasa / İhracat Breakdown */}
+      {totalMiktar > 0 && (
+        <View style={styles.marketBreakdown}>
+          <View style={styles.marketBreakdownItem}>
+            <View style={[styles.marketDot, { backgroundColor: '#15803D' }]} />
+            <Text style={styles.marketBreakdownLabel}>İç Piyasa</Text>
+            <Text style={[styles.marketBreakdownValue, { color: '#15803D' }]}>{totalIcPiyasa.toLocaleString('tr-TR')}</Text>
+          </View>
+          <View style={styles.marketBreakdownItem}>
+            <View style={[styles.marketDot, { backgroundColor: '#B45309' }]} />
+            <Text style={styles.marketBreakdownLabel}>İhracat</Text>
+            <Text style={[styles.marketBreakdownValue, { color: '#B45309' }]}>{totalIhracat.toLocaleString('tr-TR')}</Text>
+          </View>
+        </View>
+      )}
 
       {/* Tab Switcher */}
       <View style={styles.tabBar}>
@@ -333,9 +424,9 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
         </View>
       )}
       {activeTab === 'summary' && !summaryLoading && summaryEntries.length > 0 && (
-        <View style={styles.summaryGrid}>
+        <View style={styles.summaryCardGrid}>
           {summaryEntries.map((ozet, idx) => (
-            <SummaryItem key={idx} ozet={ozet} />
+            <SummaryCard key={idx} ozet={ozet} />
           ))}
         </View>
       )}
@@ -345,7 +436,7 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Üretim Kayıtları</Text>
           <Chip
-            label={`Sayfa ${page}/${totalPages || 1}`}
+            label={`${total} kayıt`}
             size="sm"
             color={Colors.textSecondary}
             bgColor={Colors.bgSurface}
@@ -384,6 +475,30 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
           </View>
           {showFilters ? <ChevronUpIcon size={12} color={Colors.textTertiary} /> : <ChevronDownIcon size={12} color={Colors.textTertiary} />}
         </TouchableOpacity>
+
+        {/* Vardiya quick‑filter chips */}
+        <View style={styles.vardiyaChipRow}>
+          {[null, 'C', 'A', 'B'].map(v => {
+            const isAll = v === null;
+            const active = selectedVardiya === v;
+            const def = v ? VARDIYA_DEFS[v] : null;
+            return (
+              <TouchableOpacity
+                key={v ?? 'all'}
+                style={[
+                  styles.vardiyaChip,
+                  active && { backgroundColor: def ? def.color : Colors.brandPrimary, borderColor: def ? def.color : Colors.brandPrimary },
+                ]}
+                onPress={() => setSelectedVardiya(v)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.vardiyaChipText, active && { color: '#fff' }]}>
+                  {isAll ? 'Tümü' : `${v} (${def.baslangic})`}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         {showFilters && (
           <View style={styles.filterContent}>
@@ -457,7 +572,7 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
               return;
             }
             if (pendingDateField === 'startDate' || pendingDateField === 'endDate') {
-              setFilters(prev => ({ ...prev, [pendingDateField]: date.toISOString().split('T')[0] }));
+              setFilters(prev => ({ ...prev, [pendingDateField]: toLocalDateStr(date) }));
             } else {
               const hours = String(date.getHours()).padStart(2, '0');
               const mins = String(date.getMinutes()).padStart(2, '0');
@@ -524,31 +639,9 @@ export default function GunlukUretimlerScreen({ fabrika, istasyonlar }) {
               <EmptyState icon={<FactoryIcon size={28} color={Colors.textTertiary} />} title="Kayıt bulunamadı" subtitle="Filtre değerlerini kontrol edin" />
             ) : null
           }
-          ListFooterComponent={
-            activeTab === 'details' && totalPages > 1 ? (
-              <View style={styles.pagination}>
-                <TouchableOpacity
-                  style={[styles.pageBtn, page <= 1 && styles.pageBtnDisabled]}
-                  disabled={page <= 1}
-                  onPress={() => fetchUretimler(page - 1)}
-                >
-                  <View style={{flexDirection:'row',alignItems:'center',gap:4}}><SimpleIcon name="chevron-left" size={12} color={Colors.textPrimary} /><Text style={styles.pageBtnText}>Önceki</Text></View>
-                </TouchableOpacity>
-                <View style={styles.pageInfo}>
-                  <Text style={styles.pageInfoText}>{page} / {totalPages}</Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.pageBtn, page >= totalPages && styles.pageBtnDisabled]}
-                  disabled={page >= totalPages}
-                  onPress={() => fetchUretimler(page + 1)}
-                >
-                  <View style={{flexDirection:'row',alignItems:'center',gap:4}}><Text style={styles.pageBtnText}>Sonraki</Text><SimpleIcon name="chevron-right" size={12} color={Colors.textPrimary} /></View>
-                </TouchableOpacity>
-              </View>
-            ) : null
-          }
+          ListFooterComponent={null}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => fetchUretimler(1, true)} tintColor={Colors.brandPrimary} />
+            <RefreshControl refreshing={refreshing} onRefresh={() => fetchData(null, true)} tintColor={Colors.brandPrimary} />
           }
           showsVerticalScrollIndicator={false}
         />
@@ -604,6 +697,27 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: Colors.brandPrimary,
+  },
+  // Vardiya chip bar
+  vardiyaChipRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingTop: 8,
+    paddingBottom: 4,
+    flexWrap: 'wrap',
+  },
+  vardiyaChip: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    backgroundColor: Colors.bgSurface,
+  },
+  vardiyaChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
   },
   filterContent: {
     marginTop: Spacing.sm,
@@ -734,11 +848,95 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: Colors.borderLight,
   },
+  // Summary – old list styles (kept for reference, replaced by card styles below)
   summaryStation: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary },
   summaryProduct: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
   summaryRight: { alignItems: 'flex-end' },
   summaryTotal: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary },
   summaryCount: { fontSize: 11, color: Colors.textTertiary, marginTop: 1 },
+
+  // Summary card grid
+  summaryCardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  summaryCard: {
+    width: (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.sm) / 2,
+    backgroundColor: Colors.bgWhite,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    ...Shadows.sm,
+  },
+  summaryCardStation: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  summaryCardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: Spacing.sm,
+    gap: 4,
+  },
+  summaryCardProduct: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    lineHeight: 18,
+  },
+  summaryCardTotalBox: {
+    alignItems: 'flex-end',
+    minWidth: 52,
+  },
+  summaryCardTotalValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: SUMMARY_ACCENT,
+  },
+  summaryCardTotalLabel: {
+    fontSize: 9,
+    color: SUMMARY_ACCENT,
+    fontWeight: '500',
+  },
+  summaryCardBars: {
+    gap: 5,
+    marginTop: 2,
+  },
+  summaryVardiyaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  summaryVardiyaLabel: {
+    width: 12,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  summaryVardiyaBarBg: {
+    flex: 1,
+    height: 6,
+    backgroundColor: Colors.bgSurface,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  summaryVardiyaBarFill: {
+    height: '100%',
+    backgroundColor: SUMMARY_ACCENT,
+    borderRadius: 3,
+  },
+  summaryVardiyaValue: {
+    width: 36,
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    textAlign: 'right',
+  },
 
   // Section
   sectionHeader: {
@@ -779,6 +977,20 @@ const styles = StyleSheet.create({
   stationHeaderRight: { alignItems: 'flex-end' },
   stationTotal: { fontSize: 18, fontWeight: '800' },
   stationCount: { fontSize: 11, color: Colors.textTertiary, marginTop: 1 },
+  stationMarketRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
+  stationMarketItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  stationMarketValue: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
 
   // Production Table
   prodTable: {
@@ -885,4 +1097,62 @@ const styles = StyleSheet.create({
   pickerModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
   pickerModalSheet: { backgroundColor: Colors.bgWhite, borderRadius: Radius.lg, padding: Spacing.lg, width: '85%', maxWidth: 360 },
   pickerModalTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', marginBottom: Spacing.sm },
+
+  // Market Tags (İç Piyasa / İhracat)
+  marketTag: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  marketTagIcPiyasa: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
+  marketTagIhracat: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  marketTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  marketTagTextIcPiyasa: {
+    color: '#15803D',
+  },
+  marketTagTextIhracat: {
+    color: '#B45309',
+  },
+
+  // Market Breakdown Row
+  marketBreakdown: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+    paddingVertical: 8,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: Colors.bgSurface,
+    borderRadius: Radius.sm,
+    marginBottom: Spacing.sm,
+  },
+  marketBreakdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  marketDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  marketBreakdownLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  marketBreakdownValue: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
 });

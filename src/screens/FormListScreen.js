@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -150,151 +151,94 @@ function FormIcon({ icon, color, size = 28 }) {
   );
 }
 
+const CARD_GAP = 12;
+const CARD_PAD = 16;
+
+const formCards = [
+  { icon: 'flask', title: 'Bull-Dolum\nKontrol', color: '#7C3AED', bg: '#F3E8FF', route: 'BullDolumList' },
+  { icon: 'box', title: 'Vardiya\nHammadde', color: '#059669', bg: '#ECFDF5', route: 'VardiyaHammadde' },
+];
+
 export default function FormListScreen() {
   const navigation = useNavigation();
+  const { width: screenW } = useWindowDimensions();
+  const numCols = screenW >= 600 ? 4 : 3;
+  const cardSize = (screenW - CARD_PAD * 2 - CARD_GAP * (numCols - 1)) / numCols;
+
+  const dynamicCards = FORM_DEFINITIONS
+    .filter(f => !['bullBrix', 'dolumBrix', 'dolumBull', 'vardiyaHatDurum', 'vardiyaPaketleme', 'vardiyaHammadde', 'depoSevk', 'vardiyaRapor'].includes(f.key))
+    .map(form => ({
+      icon: form.icon,
+      title: form.title.replace(/ /g, '\n'),
+      color: form.color,
+      bg: form.bgColor,
+      formKey: form.key,
+    }));
+
+  const allCards = [...formCards, ...dynamicCards];
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 4 }} activeOpacity={0.7}>
-            <SimpleIcon name="arrow-back-ios" size={20} color={Colors.textPrimary} />
-          </TouchableOpacity>
-          <View>
-            <Text style={styles.headerTitle}>Formlar</Text>
-            <Text style={styles.headerSubtitle}>Kalite kontrol formlarını seçin</Text>
-          </View>
-        </View>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.placeholder} activeOpacity={0.7}>
+          <SimpleIcon name="arrow-back-ios" size={20} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Formlar</Text>
+        <View style={styles.placeholder} />
       </View>
       <ScrollView
-        contentContainerStyle={styles.grid}
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Bull-Dolum combined list card */}
-        <TouchableOpacity
-          style={[styles.card, { borderWidth: 1.5, borderColor: '#7C3AED' }]}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('BullDolumList')}
-        >
-          <View style={[styles.iconWrap, { backgroundColor: '#F3E8FF' }]}>
-            <FormIcon icon="flask" color="#7C3AED" size={28} />
-          </View>
-          <View style={styles.cardContent}>
-            <Text style={styles.cardTitle} numberOfLines={1}>Bull-Dolum Kontrol</Text>
-            <Text style={styles.cardDesc} numberOfLines={2}>3 Bull + 1 Dolum brix formu doldur ve otomatik eşleştir</Text>
-          </View>
-          <View style={styles.chevron}>
-            <SimpleIcon name="chevron-right" size={18} color="#7C3AED" />
-          </View>
-        </TouchableOpacity>
-
-        {/* Vardiya Hammadde dedicated card */}
-        <TouchableOpacity
-          style={[styles.card, { borderWidth: 1.5, borderColor: '#059669' }]}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('VardiyaHammadde')}
-        >
-          <View style={[styles.iconWrap, { backgroundColor: '#ECFDF5' }]}>
-            <FormIcon icon="box" color="#059669" size={28} />
-          </View>
-          <View style={styles.cardContent}>
-            <Text style={styles.cardTitle} numberOfLines={1}>Vardiya Hammadde</Text>
-            <Text style={styles.cardDesc} numberOfLines={2}>Vardiya bazlı hammadde giriş/çıkış kaydı</Text>
-          </View>
-          <View style={styles.chevron}>
-            <SimpleIcon name="chevron-right" size={18} color="#059669" />
-          </View>
-        </TouchableOpacity>
-
-        {FORM_DEFINITIONS.filter(f => !['bullBrix', 'dolumBrix', 'dolumBull', 'vardiyaHatDurum', 'vardiyaPaketleme', 'vardiyaHammadde', 'depoSevk'].includes(f.key)).map((form) => (
-          <TouchableOpacity
-            key={form.key}
-            style={styles.card}
-            activeOpacity={0.7}
-            onPress={() => {
-              if (form.key === 'vardiyaRapor') {
-                navigation.navigate('VardiyaRapor');
-              } else {
-                navigation.navigate('FormDetail', { formKey: form.key });
-              }
-            }}
-          >
-            <View style={[styles.iconWrap, { backgroundColor: form.bgColor }]}>
-              <FormIcon icon={form.icon} color={form.color} size={28} />
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle} numberOfLines={1}>{form.title}</Text>
-              <Text style={styles.cardDesc} numberOfLines={2}>{form.description}</Text>
-            </View>
-            <View style={styles.chevron}>
-              <SimpleIcon name="chevron-right" size={18} color={Colors.textTertiary} />
-            </View>
-          </TouchableOpacity>
-        ))}
+        <View style={styles.grid}>
+          {allCards.map((item, i) => (
+            <TouchableOpacity
+              key={i}
+              style={[styles.card, { width: cardSize, height: cardSize }]}
+              activeOpacity={0.7}
+              onPress={() => {
+                if (item.route) {
+                  navigation.navigate(item.route);
+                } else if (item.formKey) {
+                  navigation.navigate('FormDetail', { formKey: item.formKey });
+                }
+              }}
+            >
+              <View style={[styles.iconWrap, { backgroundColor: item.bg }]}>
+                <FormIcon icon={item.icon} color={item.color} size={24} />
+              </View>
+              <Text style={styles.cardTitle}>{item.title}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bgApp,
-  },
+  container: { flex: 1, backgroundColor: Colors.bgApp },
   header: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 12, paddingTop: Spacing.lg,
+    backgroundColor: Colors.bgWhite,
+    borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: -0.5,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginTop: 4,
-  },
+  headerTitle: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary },
+  placeholder: { width: 40 },
+  scrollContent: { padding: CARD_PAD, gap: 16, paddingBottom: 80 },
   grid: {
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    paddingBottom: 80,
+    flexDirection: 'row', flexWrap: 'wrap', gap: CARD_GAP,
   },
   card: {
-    backgroundColor: Colors.bgWhite,
-    borderRadius: Radius.md,
-    padding: Spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: Colors.bgWhite, borderRadius: 16,
+    padding: 12, justifyContent: 'center', alignItems: 'center',
     ...Shadows.sm,
   },
   iconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 44, height: 44, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
-  cardContent: {
-    flex: 1,
-    marginLeft: Spacing.md,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-  },
-  cardDesc: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 2,
-    lineHeight: 16,
-  },
-  chevron: {
-    width: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  cardTitle: { fontSize: 12, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center' },
 });

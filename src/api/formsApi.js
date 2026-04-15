@@ -84,6 +84,14 @@ export const getUretimOzeti = (params) => get('/api/get/UretimOzeti', params);
 // ── Tüketim Özet (hammadde otomatik doldurma) ────────────────
 export const getTuketimOzeti = (params) => get('/api/get/TuketimOzeti', params);
 
+// ── Günlük Rapor child list APIs (web ile aynı, factoryCode=2) ──
+export const getGunlukUretilenUrunler = (params) => get('/api/get/GunlukUretilenUrunler', params);
+export const getUretimeVerilenCikis = (params) => get('/api/get/UretimeVerilenCikis', params);
+export const syncUretilen = (params) => fetch(`${BASE_URL}/api/GunlukRaporlar/sync-uretilen?${new URLSearchParams(params)}`, { method: 'POST' }).then(r => r.json());
+
+// ── Fire Kayıtları (günlük rapor auto-fill için) ─────────────
+export const getFireKayitlariFormsApi = (params) => get('/api/v1/FireKayitlari', params);
+
 // ── BullBrix ─────────────────────────────────────────────────
 export const getBullBrixList = (params) => get('/api/BullBrix', params);
 export const getBullBrixById = (id) => get(`/api/BullBrix/${id}`);

@@ -26,6 +26,7 @@ import {
   deleteDolumBrix,
 } from '../api/formsApi';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { toLocalDateStr, todayStr } from '../utils/dateUtils';
 
 const DRAFTS_KEY = '@bull_dolum_drafts';
 const PURPLE = '#7C3AED';
@@ -33,7 +34,7 @@ const BLUE = '#0095F6';
 const ORANGE = '#F97316';
 
 const TR_MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => todayStr();
 const formatTR = (dateStr) => {
   if (!dateStr) return '';
   const d = dateStr.split('T')[0];
@@ -414,7 +415,7 @@ export default function BullDolumListScreen() {
               setShowDatePicker(null);
               return;
             }
-            const val = date.toISOString().split('T')[0];
+            const val = toLocalDateStr(date);
             if (showDatePicker === 'start') { setStartDate(val); if (val > endDate) setEndDate(val); }
             else { setEndDate(val); if (val < startDate) setStartDate(val); }
             setShowDatePicker(null);
@@ -440,7 +441,7 @@ export default function BullDolumListScreen() {
               <TouchableOpacity
                 style={[styles.datePickerConfirm, { backgroundColor: PURPLE }]}
                 onPress={() => {
-                  const val = pendingDate.toISOString().split('T')[0];
+                  const val = toLocalDateStr(pendingDate);
                   if (showDatePicker === 'start') { setStartDate(val); if (val > endDate) setEndDate(val); }
                   else { setEndDate(val); if (val < startDate) setStartDate(val); }
                   setShowDatePicker(null);
@@ -509,13 +510,11 @@ export default function BullDolumListScreen() {
       <Modal
         visible={showDraftModal}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowDraftModal(false)}
       >
         <View style={modalStyles.overlay}>
           <View style={modalStyles.sheet}>
-            {/* Handle bar */}
-            <View style={modalStyles.handleBar} />
 
             {/* Title */}
             <Text style={modalStyles.title}>Tamamlanmamış Kayıtlar</Text>
@@ -621,18 +620,15 @@ const { height: SCREEN_H } = Dimensions.get('window');
 const modalStyles = StyleSheet.create({
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center', alignItems: 'center',
   },
   sheet: {
     backgroundColor: Colors.bgApp,
-    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 440,
     maxHeight: SCREEN_H * 0.75,
-    paddingBottom: 34,
-  },
-  handleBar: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: Colors.borderColor,
-    alignSelf: 'center', marginTop: 10, marginBottom: 12,
+    paddingBottom: 20, paddingTop: 16,
   },
   title: {
     fontSize: 18, fontWeight: '700', color: Colors.textPrimary,

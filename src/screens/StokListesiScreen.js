@@ -28,57 +28,78 @@ const textColor = '#1A1A1A';
 const secondaryTextColor = '#666666';
 const borderColor = '#EEEEEE';
 
+const GRUP_COLORS = {
+  Kolisiz:  { bg: '#F0FDFA', text: '#0F766E', border: '#99F6E4' },
+  Kolililer: { bg: '#FFF7ED', text: '#C2410C', border: '#FED7AA' },
+};
+
 // Row components OUTSIDE the main component to prevent re-creation on every render
-const CompactTableRow = memo(({ item, index }) => (
-  <View style={[styles.compactRow, { backgroundColor: index % 2 === 0 ? surfaceColor : '#F8F8F8' }]}>
-    <View style={styles.compactRowTop}>
-      <Text style={[styles.compactCode, { color: primaryColor }]} numberOfLines={1}>
-        {item.urunKodu}
-      </Text>
-      <View style={styles.compactRowRight}>
-        <View style={[
-          styles.stockBadge,
-          { backgroundColor: item.eldekiMiktar > 0 ? 'rgba(46, 125, 50, 0.1)' : 'rgba(198, 40, 40, 0.1)' },
-        ]}>
-          <Text style={[
-            styles.stockBadgeText,
-            { color: item.eldekiMiktar > 0 ? '#2E7D32' : '#C62828' },
-          ]}>
-            {item.eldekiMiktar?.toLocaleString('tr-TR') || '0'}
+const CompactTableRow = memo(({ item, index }) => {
+  const gc = GRUP_COLORS[item._grup] || GRUP_COLORS.Kolililer;
+  return (
+    <View style={[styles.compactRow, { backgroundColor: index % 2 === 0 ? surfaceColor : '#F8F8F8' }]}>
+      <View style={styles.compactRowTop}>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={[styles.grupBadge, { backgroundColor: gc.bg, borderColor: gc.border }]}>
+            <Text style={[styles.grupBadgeText, { color: gc.text }]}>{item._grup}</Text>
+          </View>
+          <Text style={[styles.compactCode, { color: primaryColor, flex: 1 }]} numberOfLines={1}>
+            {item.urunKodu}
           </Text>
         </View>
+        <View style={styles.compactRowRight}>
+          <View style={[
+            styles.stockBadge,
+            { backgroundColor: item.eldekiMiktar > 0 ? 'rgba(46, 125, 50, 0.1)' : 'rgba(198, 40, 40, 0.1)' },
+          ]}>
+            <Text style={[
+              styles.stockBadgeText,
+              { color: item.eldekiMiktar > 0 ? '#2E7D32' : '#C62828' },
+            ]}>
+              {item.eldekiMiktar?.toLocaleString('tr-TR') || '0'}
+            </Text>
+          </View>
+        </View>
       </View>
-    </View>
-    <Text style={[styles.compactName, { color: textColor }]} numberOfLines={2}>
-      {item.urunAdi}
-    </Text>
-  </View>
-));
-
-const DesktopTableRow = memo(({ item, index }) => (
-  <View style={[
-    styles.desktopRow,
-    {
-      backgroundColor: index % 2 === 0 ? surfaceColor : '#FAFAFA',
-      borderBottomColor: borderColor,
-    },
-  ]}>
-    <Text style={[styles.cellText, styles.codeCol, styles.codeText, { color: primaryColor }]} numberOfLines={1}>
-      {item.urunKodu}
-    </Text>
-    <Text style={[styles.cellText, styles.nameCol, { color: textColor }]} numberOfLines={1}>
-      {item.urunAdi}
-    </Text>
-    <View style={[styles.stockCol, styles.stockCellContainer]}>
-      <Text style={[
-        styles.stockText,
-        { color: item.eldekiMiktar > 0 ? '#2E7D32' : '#C62828' },
-      ]}>
-        {item.eldekiMiktar?.toLocaleString('tr-TR') || '0'}
+      <Text style={[styles.compactName, { color: textColor }]} numberOfLines={2}>
+        {item.urunAdi}
       </Text>
     </View>
-  </View>
-));
+  );
+});
+
+const DesktopTableRow = memo(({ item, index }) => {
+  const gc = GRUP_COLORS[item._grup] || GRUP_COLORS.Kolililer;
+  return (
+    <View style={[
+      styles.desktopRow,
+      {
+        backgroundColor: index % 2 === 0 ? surfaceColor : '#FAFAFA',
+        borderBottomColor: borderColor,
+      },
+    ]}>
+      <View style={[styles.grupCol]}>
+        <View style={[styles.grupBadge, { backgroundColor: gc.bg, borderColor: gc.border }]}>
+          <Text style={[styles.grupBadgeText, { color: gc.text }]}>{item._grup}</Text>
+        </View>
+      </View>
+      <Text style={[styles.cellText, styles.codeCol, styles.codeText, { color: primaryColor }]} numberOfLines={1}>
+        {item.urunKodu}
+      </Text>
+      <Text style={[styles.cellText, styles.nameCol, { color: textColor }]} numberOfLines={1}>
+        {item.urunAdi}
+      </Text>
+      <View style={[styles.stockCol, styles.stockCellContainer]}>
+        <Text style={[
+          styles.stockText,
+          { color: item.eldekiMiktar > 0 ? '#2E7D32' : '#C62828' },
+        ]}>
+          {item.eldekiMiktar?.toLocaleString('tr-TR') || '0'}
+        </Text>
+      </View>
+    </View>
+  );
+});
 
 export default function StokListesiScreen() {
   const navigation = useNavigation();
@@ -96,17 +117,13 @@ export default function StokListesiScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [stocks, setStocks] = useState([]);
+  const [totalRows, setTotalRows] = useState(0);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [groupFilter, setGroupFilter] = useState('all'); // 'all' | 'yrmKolisiz' | 'kolili'
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [productCode, setProductCode] = useState('');
-
-  // Pagination
-  const [page, setPage] = useState(1);
-  const [totalRows, setTotalRows] = useState(0);
-  const pageSize = 50;
-  const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 1;
 
   // Refs
   const searchInputRef = useRef(null);
@@ -115,27 +132,35 @@ export default function StokListesiScreen() {
 
   useEffect(() => {
     loadStocks();
-  }, [oncuToken, page]);
+  }, [oncuToken]);
 
+  // Load ALL pages at once — the factory has ~59 items total, no pagination needed
   const loadStocks = async () => {
     if (!oncuToken) {
       setIsLoading(false);
       return;
     }
-
     setIsLoading(true);
     setError(null);
-
     try {
-      const response = await getOncuStokEnvanter(oncuToken, {
-        page,
-        pageSize,
-        fabrikaId: FABRIKA_ID,
-        q: latestFilters.current.searchQuery.trim() || undefined,
-        urunKodu: latestFilters.current.productCode.trim() || undefined,
-      });
-      setStocks(response.items || []);
-      setTotalRows(response.totalRows || 0);
+      let allItems = [];
+      let p = 1;
+      while (true) {
+        const response = await getOncuStokEnvanter(oncuToken, {
+          page: p,
+          pageSize: 200,
+          fabrikaId: FABRIKA_ID,
+          q: latestFilters.current.searchQuery.trim() || undefined,
+          urunKodu: latestFilters.current.productCode.trim() || undefined,
+        });
+        const items = response?.items || [];
+        allItems = allItems.concat(items);
+        const serverTotal = response?.totalRows || 0;
+        if (allItems.length >= serverTotal || items.length === 0) break;
+        p++;
+      }
+      setStocks(allItems);
+      setTotalRows(allItems.length);
     } catch (err) {
       console.error('Error loading stocks:', err);
       setError(err.message || 'Stoklar yüklenirken hata oluştu');
@@ -146,7 +171,7 @@ export default function StokListesiScreen() {
 
   const handleSearch = () => {
     latestFilters.current = { searchQuery, productCode };
-    setPage(1);
+    setGroupFilter('all');
     setShowFilterSheet(false);
     Keyboard.dismiss();
     searchInputRef.current?.blur();
@@ -154,58 +179,50 @@ export default function StokListesiScreen() {
     loadStocks();
   };
 
-  const handlePageChange = (newPage) => {
-    if (newPage >= 1 && newPage <= totalPages && newPage !== page) {
-      setPage(newPage);
-    }
-  };
-
   // Desktop Table Header
   const DesktopTableHeader = () => (
     <View style={[styles.desktopHeader, { borderBottomColor: borderColor }]}>
+      <Text style={[styles.headerText, styles.grupCol, { color: secondaryTextColor }]}>GRUP</Text>
       <Text style={[styles.headerText, styles.codeCol, { color: secondaryTextColor }]}>ÜRÜN KODU</Text>
       <Text style={[styles.headerText, styles.nameCol, { color: secondaryTextColor }]}>ÜRÜN ADI</Text>
       <Text style={[styles.headerText, styles.stockCol, { color: secondaryTextColor, textAlign: 'right' }]}>STOK</Text>
     </View>
   );
 
-  // Pagination
-  const PaginationBar = () => {
-    if (stocks.length === 0 && totalRows === 0) return null;
-
+  // Footer: just show total count
+  const FooterBar = () => {
+    if (stocks.length === 0) return null;
     return (
       <View style={[styles.pagination, { borderTopColor: borderColor }]}>
-        <View style={styles.paginationLeft}>
-          <Text style={[styles.paginationText, { color: secondaryTextColor }]}>
-            {`${((page - 1) * pageSize) + 1}-${Math.min(page * pageSize, totalRows)}`}
-            <Text style={{ color: textColor, fontWeight: '600' }}> / {totalRows}</Text>
-          </Text>
-        </View>
-
-        <View style={styles.paginationRight}>
-          <TouchableOpacity
-            style={[styles.paginationBtn, { opacity: page <= 1 ? 0.4 : 1 }]}
-            onPress={() => handlePageChange(page - 1)}
-            disabled={page <= 1}
-          >
-            <SimpleIcon name="chevron-left" size={24} color={textColor} />
-          </TouchableOpacity>
-
-          <View style={[styles.pageIndicator, { backgroundColor: '#F0F0F0' }]}>
-            <Text style={[styles.pageIndicatorText, { color: textColor }]}>{page}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.paginationBtn, { opacity: page >= totalPages ? 0.4 : 1 }]}
-            onPress={() => handlePageChange(page + 1)}
-            disabled={page >= totalPages}
-          >
-            <SimpleIcon name="chevron-right" size={24} color={textColor} />
-          </TouchableOpacity>
-        </View>
+        <Text style={[styles.paginationText, { color: secondaryTextColor }]}>
+          Toplam{' '}<Text style={{ color: textColor, fontWeight: '700' }}>{totalRows}</Text> kayıt
+        </Text>
       </View>
     );
   };
+
+  // YRM (Kolisiz) vs Kolililer — determined by product code
+  const isYRM = (item) => (item.urunKodu || '').toUpperCase().startsWith('YRM');
+  const yrmStocks = stocks.filter(isYRM);
+  const normalStocks = stocks.filter(s => !isYRM(s));
+  const yrmTotal = yrmStocks.reduce((sum, s) => sum + (s.eldekiMiktar || 0), 0);
+  const normalTotal = normalStocks.reduce((sum, s) => sum + (s.eldekiMiktar || 0), 0);
+
+  // Sorted: Kolisiz (YRM) first, then Kolililer — both alphabetical by code
+  const sortedStocks = React.useMemo(() => [
+    ...yrmStocks
+      .sort((a, b) => (a.urunKodu || '').localeCompare(b.urunKodu || ''))
+      .map(s => ({ ...s, _grup: 'Kolisiz' })),
+    ...normalStocks
+      .sort((a, b) => (a.urunKodu || '').localeCompare(b.urunKodu || ''))
+      .map(s => ({ ...s, _grup: 'Kolililer' })),
+  ], [stocks]);
+
+  const filteredStocks = React.useMemo(() => {
+    if (groupFilter === 'yrmKolisiz') return sortedStocks.filter(s => s._grup === 'Kolisiz');
+    if (groupFilter === 'kolili') return sortedStocks.filter(s => s._grup === 'Kolililer');
+    return sortedStocks;
+  }, [sortedStocks, groupFilter]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -279,6 +296,37 @@ export default function StokListesiScreen() {
         </View>
       )}
 
+      {/* YRM / Kolili Ozet + Grup Filtresi */}
+      {stocks.length > 0 && (
+        <View style={styles.yrmSummaryBar}>
+          <View style={styles.yrmSummaryRow}>
+            <TouchableOpacity
+              style={[styles.yrmSummaryChip, groupFilter === 'yrmKolisiz' && styles.yrmSummaryChipActive]}
+              onPress={() => setGroupFilter(groupFilter === 'yrmKolisiz' ? 'all' : 'yrmKolisiz')}
+            >
+              <Text style={styles.yrmSummaryChipLabel}>YRM (Kolisiz)</Text>
+              <Text style={[styles.yrmSummaryChipValue, { color: '#0F766E' }]}>{yrmTotal.toLocaleString('tr-TR')}</Text>
+              <Text style={styles.yrmSummaryChipCount}>{yrmStocks.length} ürün</Text>
+            </TouchableOpacity>
+            <View style={styles.yrmDivider} />
+            <TouchableOpacity
+              style={[styles.yrmSummaryChip, groupFilter === 'kolili' && styles.yrmSummaryChipActive]}
+              onPress={() => setGroupFilter(groupFilter === 'kolili' ? 'all' : 'kolili')}
+            >
+              <Text style={styles.yrmSummaryChipLabel}>Diğer (Kolili)</Text>
+              <Text style={[styles.yrmSummaryChipValue, { color: primaryColor }]}>{normalTotal.toLocaleString('tr-TR')}</Text>
+              <Text style={styles.yrmSummaryChipCount}>{normalStocks.length} ürün</Text>
+            </TouchableOpacity>
+          </View>
+          {groupFilter !== 'all' && (
+            <TouchableOpacity style={styles.yrmClearFilter} onPress={() => setGroupFilter('all')}>
+              <SimpleIcon name="close" size={14} color="#666" />
+              <Text style={styles.yrmClearFilterText}>Grubu kaldır</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {isLoading && stocks.length === 0 ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={primaryColor} />
@@ -300,7 +348,7 @@ export default function StokListesiScreen() {
       ) : isCompact ? (
         <FlatList
           style={{ flex: 1 }}
-          data={stocks}
+          data={filteredStocks}
           keyExtractor={(item, index) => `${item.urunKodu}-${index}`}
           renderItem={({ item, index }) => <CompactTableRow item={item} index={index} />}
           showsVerticalScrollIndicator={false}
@@ -318,7 +366,7 @@ export default function StokListesiScreen() {
           <DesktopTableHeader />
           <FlatList
             style={{ flex: 1 }}
-            data={stocks}
+            data={filteredStocks}
             keyExtractor={(item, index) => `${item.urunKodu}-${index}`}
             renderItem={({ item, index }) => <DesktopTableRow item={item} index={index} />}
             showsVerticalScrollIndicator={false}
@@ -333,7 +381,7 @@ export default function StokListesiScreen() {
         </View>
       )}
 
-      <PaginationBar />
+      <FooterBar />
     </SafeAreaView>
   );
 }
@@ -479,6 +527,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  // GRUP badge
+  grupBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  grupBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  grupCol: {
+    width: 76,
+    paddingRight: 8,
+    justifyContent: 'center',
+  },
   // Desktop Table
   tableContainer: {
     flex: 1,
@@ -568,5 +633,63 @@ const styles = StyleSheet.create({
   pageIndicatorText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  // YRM Grouping Summary
+  yrmSummaryBar: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  yrmSummaryRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  yrmSummaryChip: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  yrmSummaryChipActive: {
+    borderColor: '#0F766E',
+    backgroundColor: '#F0FDFA',
+  },
+  yrmSummaryChipLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  yrmSummaryChipValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  yrmSummaryChipCount: {
+    fontSize: 10,
+    color: '#999',
+    marginTop: 1,
+  },
+  yrmDivider: {
+    width: 1,
+    backgroundColor: '#EEEEEE',
+    marginVertical: 4,
+  },
+  yrmClearFilter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    alignSelf: 'flex-end',
+  },
+  yrmClearFilterText: {
+    fontSize: 11,
+    color: '#666',
   },
 });

@@ -15,6 +15,8 @@ import {
   getStokHareketDomatesAlimFiciBesleme,
   getStokHareketDomatesFiciTuketim,
   getGunlukUretimler, getUretimOzeti,
+  createVardiyaHatDurum,
+  createVardiyaPaketleme,
 } from '../api/formsApi';
 import { getUretimEmirleri } from '../api/apiService';
 import { getKaliteProsesKontrol } from '../api/oncuApi';
@@ -22,12 +24,13 @@ import { AppDataContext } from '../context/AppDataContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Icon from '../components/SimpleIcon';
 import {
-  VARDIYA_DEFS, VARDIYA_HESAP,
+  VARDIYA_DEFS, VARDIYA_HESAP, VARDIYA_ORDER,
   getVardiyaHesapTimes, getCurrentVardiya,
 } from '../utils/vardiya';
+import { toLocalDateStr, todayStr } from '../utils/dateUtils';
 
 const INDIGO = '#6366F1';
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => todayStr();
 const formatTR = (d) => {
   if (!d) return '';
   const s = d.split('T')[0];
@@ -57,22 +60,50 @@ const timeToMinutes = (t) => {
   return h * 60 + m;
 };
 
+// ── RaporCard locak stilleri ─────────────────────────────────
+const rcStyles = StyleSheet.create({
+  cardHeader: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 },
+  cardTitle: { fontSize: 14, fontWeight: '700', color: '#1e293b', flexShrink: 1 },
+  cardSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  sectionTitle: { fontSize: 11, fontWeight: '700', color: '#475569', letterSpacing: 0.8, backgroundColor: '#f1f5f9', paddingHorizontal: 10, paddingVertical: 5, marginTop: 10, marginHorizontal: -12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#e2e8f0' },
+  infoTable: { marginTop: 4 },
+  infoRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingVertical: 6, paddingHorizontal: 2 },
+  infoLabel: { width: 130, fontSize: 11, fontWeight: '600', color: '#475569' },
+  infoValue: { flex: 1, fontSize: 12, color: '#1e293b' },
+  tableContainer: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 4, marginTop: 6, overflow: 'hidden' },
+  tableHead: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderBottomWidth: 1, borderColor: '#e2e8f0' },
+  thCell: { fontSize: 10, fontWeight: '700', color: '#475569', paddingHorizontal: 6, paddingVertical: 5 },
+  tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e2e8f0' },
+  tdCell: { fontSize: 11, color: '#1e293b', paddingHorizontal: 6, paddingVertical: 5 },
+});
+
 // ── Rapor kartı (liste görünümü) ─────────────────────────────
 function RaporCard({ rapor, onEdit, onDelete }) {
   const [expanded, setExpanded] = useState(false);
 
+  const isKoli = isKolileme(rapor.calismaHat);
+  const saatBas = rapor.vardiya && VARDIYA_DEFS[rapor.vardiya] ? VARDIYA_DEFS[rapor.vardiya].baslangic : (rapor.calismaSaatiBas || '-');
+  const saatBit = rapor.vardiya && VARDIYA_DEFS[rapor.vardiya] ? VARDIYA_DEFS[rapor.vardiya].bitis : (rapor.calismaSaatiBit || '-');
+  const hatDurumlar = rapor.hatDurumlar || [];
+
+  const InfoRow = ({ label, value, valueStyle }) => (
+    <View style={rcStyles.infoRow}>
+      <Text style={rcStyles.infoLabel}>{label}</Text>
+      <Text style={[rcStyles.infoValue, valueStyle]} numberOfLines={3}>{value ?? '-'}</Text>
+    </View>
+  );
+
   return (
     <View style={styles.raporCard}>
+      {/* ── Kart Başlığı ── */}
       <TouchableOpacity activeOpacity={0.7} onPress={() => setExpanded(!expanded)}>
-        <View style={styles.raporHeader}>
+        <View style={rcStyles.cardHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.raporTitle}>
-              {rapor.calismaHat || 'Hat ?'} — #{rapor.id}
-              {rapor.vardiya ? ` (${rapor.vardiya})` : ''}
+            <Text style={rcStyles.cardTitle}>
+              {rapor.calismaHat || 'Hat ?'}  —  {formatTR(rapor.tarih)}
             </Text>
-            <Text style={styles.raporDate}>
-              {formatTR(rapor.tarih)}
-              {rapor.vardiya && VARDIYA_DEFS[rapor.vardiya] ? ` ${VARDIYA_DEFS[rapor.vardiya].baslangic} - ${VARDIYA_DEFS[rapor.vardiya].bitis}` : (rapor.calismaSaatiBas ? ` ${rapor.calismaSaatiBas} - ${rapor.calismaSaatiBit}` : '')}
+            <Text style={rcStyles.cardSub}>
+              Vardiya {rapor.vardiya || '?'}  ·  {saatBas} - {saatBit}
             </Text>
           </View>
           <View style={styles.raporActions}>
@@ -91,102 +122,121 @@ function RaporCard({ rapor, onEdit, onDelete }) {
           </View>
         </View>
 
-        {/* Chip'ler */}
-        <View style={styles.statsRow}>
-          {rapor.girenHammaddeMiktari != null && (
-            <View style={styles.statChip}><Text style={styles.statLabel}>Hammadde</Text><Text style={styles.statVal}>{rapor.girenHammaddeMiktari}</Text></View>
-          )}
-          {rapor.toplamUretimMiktari != null && (
-            <View style={styles.statChip}><Text style={styles.statLabel}>Üretim</Text><Text style={styles.statVal}>{rapor.toplamUretimMiktari}</Text></View>
-          )}
-          {rapor.sonBrix != null && (
-            <View style={styles.statChip}><Text style={styles.statLabel}>Brix</Text><Text style={styles.statVal}>{rapor.sonBrix}</Text></View>
-          )}
-          {rapor.kamyonSayisi != null && (
-            <View style={styles.statChip}><Text style={styles.statLabel}>Kamyon</Text><Text style={styles.statVal}>{rapor.kamyonSayisi}</Text></View>
-          )}
-        </View>
-
+        {/* Özet chip'ler (kapalıyken) */}
         {!expanded && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 8 }}>
-            <Text style={styles.expandHint}>Detayları görmek için dokunun</Text>
-            <Icon name="expand-more" size={14} color={Colors.textTertiary} />
+          <View style={styles.statsRow}>
+            {rapor.toplamUretimMiktari != null && (
+              <View style={styles.statChip}>
+                <Text style={styles.statLabel}>Üretim</Text>
+                <Text style={styles.statVal}>{rapor.toplamUretimMiktari}</Text>
+              </View>
+            )}
+            {!isKoli && rapor.girenHammaddeMiktari != null && (
+              <View style={styles.statChip}>
+                <Text style={styles.statLabel}>Hammadde</Text>
+                <Text style={styles.statVal}>{rapor.girenHammaddeMiktari}</Text>
+              </View>
+            )}
+            {!isKoli && rapor.sonBrix != null && (
+              <View style={styles.statChip}>
+                <Text style={styles.statLabel}>Brix</Text>
+                <Text style={styles.statVal}>{rapor.sonBrix}</Text>
+              </View>
+            )}
           </View>
         )}
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: expanded ? 0 : 6, marginBottom: 4 }}>
+          <Icon name={expanded ? 'expand-less' : 'expand-more'} size={16} color={Colors.textTertiary} />
+        </View>
       </TouchableOpacity>
 
+      {/* ── Detay ── */}
       {expanded && (
         <View style={styles.expandedContent}>
-          <Text style={styles.sectionLabel}>Genel</Text>
-          <View style={styles.detailGrid}>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Çalışma Hat</Text><Text style={styles.detailValue}>{rapor.calismaHat || '-'}</Text></View>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Parti No</Text><Text style={styles.detailValue}>{rapor.calisillanPartiNo || '-'}</Text></View>
-          </View>
-          {rapor.tett ? (
-            <View style={styles.detailGrid}><View style={styles.detailCell}><Text style={styles.detailLabel}>TETT</Text><Text style={styles.detailValue}>{rapor.tett}</Text></View></View>
-          ) : null}
-          {rapor.injectlemeKodu ? (
-            <View style={styles.detailGrid}><View style={styles.detailCell}><Text style={styles.detailLabel}>Inject</Text><Text style={[styles.detailValue, { fontSize: 11 }]}>{rapor.injectlemeKodu}</Text></View></View>
-          ) : null}
-          <View style={styles.detailGrid}>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Tarih</Text><Text style={styles.detailValue}>{formatTR(rapor.tarih)}</Text></View>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Başlangıç</Text><Text style={styles.detailValue}>{rapor.vardiya && VARDIYA_DEFS[rapor.vardiya] ? VARDIYA_DEFS[rapor.vardiya].baslangic : (rapor.calismaSaatiBas || '-')}</Text></View>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Bitiş</Text><Text style={styles.detailValue}>{rapor.vardiya && VARDIYA_DEFS[rapor.vardiya] ? VARDIYA_DEFS[rapor.vardiya].bitis : (rapor.calismaSaatiBit || '-')}</Text></View>
-          </View>
-          <View style={styles.detailDivider} />
 
-          <Text style={styles.sectionLabel}>Üretim</Text>
-          <View style={styles.detailGrid}>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Tük. Domates Hammadde</Text><Text style={styles.detailValue}>{rapor.girenHammaddeMiktari ?? '-'}</Text></View>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Kamyon Sayısı</Text><Text style={styles.detailValue}>{rapor.kamyonSayisi ?? '-'}</Text></View>
+          {/* GENEL BİLGİLER */}
+          <Text style={rcStyles.sectionTitle}>GENEL BİLGİLER</Text>
+          <View style={rcStyles.infoTable}>
+            <InfoRow label="ÇALIŞMA HATTI" value={rapor.calismaHat} />
+            <InfoRow label="TARİH" value={formatTR(rapor.tarih)} />
+            <InfoRow label="ÇALIŞMA SAATİ" value={`${saatBas} - ${saatBit}`} />
+            <InfoRow label="PARTİ NO" value={rapor.calisillanPartiNo} />
+            {!isKoli && rapor.injectlemeKodu ? <InfoRow label="INJECT KODU" value={rapor.injectlemeKodu} /> : null}
+            <InfoRow label="TETT" value={rapor.tett} />
+            <InfoRow label="TOPLAM ÜRETİM" value={rapor.toplamUretimMiktari != null ? String(rapor.toplamUretimMiktari) : null} valueStyle={{ color: '#059669', fontWeight: '700' }} />
+            <InfoRow label="ARIZA" value={rapor.arizaBildirimi || 'YOK'} />
+            {!isKoli && rapor.girenHammaddeMiktari != null ? <InfoRow label="TÜK. DOMATES HAMMADDE" value={String(rapor.girenHammaddeMiktari)} /> : null}
+            {!isKoli && rapor.kamyonSayisi != null ? <InfoRow label="KAMYON SAYISI" value={String(rapor.kamyonSayisi)} /> : null}
+            {!isKoli && (rapor.ficiKg ?? rapor.yariMamulFiciKg) != null ? <InfoRow label="TÜK. ASEPTİK FIÇI (KG)" value={String(rapor.ficiKg ?? rapor.yariMamulFiciKg)} /> : null}
+            {rapor.notlar ? <InfoRow label="NOTLAR" value={rapor.notlar} /> : null}
           </View>
-          <View style={styles.detailGrid}>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Tük. Aseptik Fıçı</Text><Text style={styles.detailValue}>{rapor.ficiKg ?? rapor.yariMamulFiciKg ?? '-'}</Text></View>
-            <View style={styles.detailCell}><Text style={styles.detailLabel}>Toplam Üretim</Text><Text style={[styles.detailValue, { color: '#059669', fontWeight: '800' }]}>{rapor.toplamUretimMiktari ?? '-'}</Text></View>
-          </View>
-          {rapor.arizaBildirimi ? (
-            <View style={styles.detailGrid}><View style={styles.detailCell}><Text style={styles.detailLabel}>Arıza Bildirimi</Text><Text style={styles.detailValue}>{rapor.arizaBildirimi}</Text></View></View>
-          ) : null}
 
-          {/* Paketlemeler */}
-          {(rapor.paketlemeler || []).length > 0 && (<>
-            <View style={styles.detailDivider} />
-            <Text style={styles.sectionLabel}>Günlük Üretim</Text>
-            {rapor.paketlemeler.map((p, i) => (
-              <View key={i} style={{ marginBottom: 6 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.textPrimary }}>{p.calisillanUrunAdi || '-'}</Text>
-                <Text style={{ fontSize: 12, color: Colors.textSecondary }}>
-                  {p.miktarAdet ? `${p.miktarAdet} adet` : ''}{p.gramaj ? ` × ${p.gramaj}g` : ''}{p.toplamKg ? ` = ${p.toplamKg} kg` : ''}
-                </Text>
+          {/* HAT DURUMLARI */}
+          {hatDurumlar.length > 0 && (<>
+            <Text style={rcStyles.sectionTitle}>HAT DURUMLARI</Text>
+            <View style={rcStyles.tableContainer}>
+              <View style={rcStyles.tableHead}>
+                <Text style={[rcStyles.thCell, { flex: 1 }]}>HAT ADI</Text>
+                <Text style={[rcStyles.thCell, { width: 110 }]}>DURUM</Text>
               </View>
-            ))}
-          </>)}
-
-          {/* Kalite (kolileme hariç) */}
-          {!isKolileme(rapor.calismaHat) && (<>
-            <View style={styles.detailDivider} />
-            <Text style={styles.sectionLabel}>Kalite Değerleri</Text>
-            <View style={styles.qualityTable}>
-              <View style={styles.qualityCol}>
-                <Text style={styles.qualityHeader}>Son</Text>
-                <View style={styles.qualityItem}><Text style={styles.qualityItemLabel}>Brix</Text><Text style={styles.qualityItemVal}>{rapor.sonBrix ?? '-'}</Text></View>
-                <View style={styles.qualityItem}><Text style={styles.qualityItemLabel}>Bostwick</Text><Text style={styles.qualityItemVal}>{rapor.sonBost ?? '-'}</Text></View>
-                <View style={styles.qualityItem}><Text style={styles.qualityItemLabel}>Renk</Text><Text style={styles.qualityItemVal}>{rapor.sonRenk ?? '-'}</Text></View>
-              </View>
-              <View style={styles.qualityVDivider} />
-              <View style={styles.qualityCol}>
-                <Text style={styles.qualityHeader}>Üretim</Text>
-                <View style={styles.qualityItem}><Text style={styles.qualityItemLabel}>Brix</Text><Text style={styles.qualityItemVal}>{rapor.uretimBrix ?? '-'}</Text></View>
-                <View style={styles.qualityItem}><Text style={styles.qualityItemLabel}>Bostwick</Text><Text style={styles.qualityItemVal}>{rapor.uretimBost ?? '-'}</Text></View>
-                <View style={styles.qualityItem}><Text style={styles.qualityItemLabel}>Renk</Text><Text style={styles.qualityItemVal}>{rapor.uretimRenk ?? '-'}</Text></View>
-              </View>
+              {hatDurumlar.map((h, i) => (
+                <View key={i} style={[rcStyles.tableRow, i % 2 === 1 && { backgroundColor: '#F9F9F9' }]}>
+                  <Text style={[rcStyles.tdCell, { flex: 1 }]}>{h.hatAdi || '-'}</Text>
+                  <Text style={[rcStyles.tdCell, { width: 110 }]}>{h.hatDurumu || '-'}</Text>
+                </View>
+              ))}
             </View>
           </>)}
 
-          {rapor.notlar ? (<><View style={styles.detailDivider} /><Text style={styles.sectionLabel}>Notlar</Text><Text style={styles.notlarText}>{rapor.notlar}</Text></>) : null}
+          {/* GÜNLÜK ÜRETİM */}
+          {(rapor.paketlemeler || []).length > 0 && (<>
+            <Text style={rcStyles.sectionTitle}>{rapor.calismaHat} — GÜNLÜK ÜRETİM</Text>
+            <View style={rcStyles.tableContainer}>
+              <View style={rcStyles.tableHead}>
+                <Text style={[rcStyles.thCell, { flex: 1 }]}>ÜRÜN ADI</Text>
+                <Text style={[rcStyles.thCell, { width: 60 }]}>TİP</Text>
+                <Text style={[rcStyles.thCell, { width: 60, textAlign: 'right' }]}>ADET</Text>
+                <Text style={[rcStyles.thCell, { width: 65, textAlign: 'right' }]}>GRAMAJ</Text>
+                <Text style={[rcStyles.thCell, { width: 65, textAlign: 'right' }]}>TOP. KG</Text>
+              </View>
+              {rapor.paketlemeler.map((p, i) => (
+                <View key={i} style={[rcStyles.tableRow, i % 2 === 1 && { backgroundColor: '#F9F9F9' }]}>
+                  <Text style={[rcStyles.tdCell, { flex: 1 }]} numberOfLines={2}>{p.calisillanUrunAdi || '-'}</Text>
+                  <Text style={[rcStyles.tdCell, { width: 60 }]}>{p.urunTipi || '-'}</Text>
+                  <Text style={[rcStyles.tdCell, { width: 60, textAlign: 'right' }]}>{p.miktarAdet ?? '-'}</Text>
+                  <Text style={[rcStyles.tdCell, { width: 65, textAlign: 'right' }]}>{p.gramaj != null ? Number(p.gramaj).toLocaleString('tr-TR') : '-'}</Text>
+                  <Text style={[rcStyles.tdCell, { width: 65, textAlign: 'right', fontWeight: '600', color: '#059669' }]}>{p.toplamKg ?? '-'}</Text>
+                </View>
+              ))}
+            </View>
+          </>)}
 
-          <TouchableOpacity style={{ marginTop: 12 }} onPress={() => setExpanded(false)} activeOpacity={0.7}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+          {/* KALİTE DEĞERLERİ (kolileme hariç) */}
+          {!isKoli && (rapor.sonBrix != null || rapor.uretimBrix != null) && (<>
+            <Text style={rcStyles.sectionTitle}>KALİTE DEĞERLERİ</Text>
+            <View style={rcStyles.tableContainer}>
+              <View style={rcStyles.tableHead}>
+                <Text style={[rcStyles.thCell, { width: 90 }]}>ÖLÇÜM</Text>
+                <Text style={[rcStyles.thCell, { flex: 1, textAlign: 'right' }]}>SON ÜRÜN</Text>
+                <Text style={[rcStyles.thCell, { flex: 1, textAlign: 'right' }]}>ÜRETİM</Text>
+              </View>
+              {[
+                { label: 'Brix', son: rapor.sonBrix, uretim: rapor.uretimBrix },
+                { label: 'Bostwick', son: rapor.sonBost, uretim: rapor.uretimBost },
+                { label: 'Renk', son: rapor.sonRenk, uretim: rapor.uretimRenk },
+              ].map((r, i) => (
+                <View key={i} style={[rcStyles.tableRow, i % 2 === 1 && { backgroundColor: '#F9F9F9' }]}>
+                  <Text style={[rcStyles.tdCell, { width: 90, fontWeight: '600' }]}>{r.label}</Text>
+                  <Text style={[rcStyles.tdCell, { flex: 1, textAlign: 'right' }]}>{r.son ?? '-'}</Text>
+                  <Text style={[rcStyles.tdCell, { flex: 1, textAlign: 'right' }]}>{r.uretim ?? '-'}</Text>
+                </View>
+              ))}
+            </View>
+          </>)}
+
+          <TouchableOpacity style={{ marginTop: 10, alignItems: 'center' }} onPress={() => setExpanded(false)} activeOpacity={0.7}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={styles.expandHint}>Daralt</Text>
               <Icon name="expand-less" size={14} color={Colors.textTertiary} />
             </View>
@@ -248,8 +298,12 @@ export default function VardiyaRaporScreen() {
   const [hatOptions, setHatOptions] = useState([]);
   const [completedHats, setCompletedHats] = useState(new Set());
   const [activeEmirler, setActiveEmirler] = useState([]);
-  const [selectedVardiya] = useState(getCurrentVardiya());
-  const [flowDate] = useState(today());
+  const [selectedVardiya, setSelectedVardiya] = useState(getCurrentVardiya());
+  const [flowDate, setFlowDate] = useState(today());
+  const [pastDateMode, setPastDateMode] = useState(false);
+  const [showFlowDatePicker, setShowFlowDatePicker] = useState(false);
+  const [pendingFlowDate, setPendingFlowDate] = useState(new Date());
+  const [showVardiyaPicker, setShowVardiyaPicker] = useState(false);
 
   // ── Form modal ──
   const [modalVisible, setModalVisible] = useState(false);
@@ -263,8 +317,22 @@ export default function VardiyaRaporScreen() {
   const [paketler, setPaketler] = useState([emptyPaket()]);
 
   function emptyPaket() {
-    return { calisillanUrunAdi: '', urunTipi: '', miktarAdet: '', gramaj: '', toplamKg: '' };
+    return { urunKodu: '', calisillanUrunAdi: '', urunTipi: '', miktarAdet: '', gramaj: '', toplamKg: '' };
   }
+
+  // IHR/İHR/ihr varyasyonları → Tuzlu, yoksa Tuzsuz
+  const tipFromKod = (kod) => {
+    if (!kod) return '';
+    const lower = kod.toLowerCase().replace(/İ/gi, 'i').replace(/ı/g, 'i');
+    return lower.includes('ihr') ? 'Tuzlu' : 'Tuzsuz';
+  };
+
+  // Ürün adından gramaj çıkar: "DOMATES S.1/1 830 Gr.* 12" → 830
+  const parseGramajFromName = (name) => {
+    if (!name) return null;
+    const m = name.match(/(\d+)\s*[Gg][Rr]/); 
+    return m ? Number(m[1]) : null;
+  };
 
   const setF = (key, val) => setForm(p => ({ ...p, [key]: val }));
   const numInput = (key, val) => setF(key, val.replace(/[^0-9.,-]/g, ''));
@@ -399,11 +467,12 @@ export default function VardiyaRaporScreen() {
     try {
       const kpcData = await getKaliteProsesKontrol(oncuToken, hatEmirFisNo[0]);
       if (kpcData) {
+        const isKoli = isKolileme(hat);
         setForm(p => ({
           ...p,
-          injectlemeKodu: kpcData.injectlemeKodu || kpcData.InjectlemeKodu || p.injectlemeKodu || '',
+          injectlemeKodu: isKoli ? p.injectlemeKodu : (kpcData.injectlemeKodu || kpcData.InjectlemeKodu || p.injectlemeKodu || ''),
           tett: kpcData.tett || kpcData.TETT || kpcData.Tett || p.tett || '',
-          calisillanPartiNo: kpcData.pno || kpcData.Pno || p.calisillanPartiNo || '',
+          calisillanPartiNo: isKoli ? p.calisillanPartiNo : (kpcData.pno || kpcData.Pno || p.calisillanPartiNo || ''),
         }));
       }
     } catch (_) {}
@@ -414,31 +483,43 @@ export default function VardiyaRaporScreen() {
     const hesap = VARDIYA_HESAP[vardiya];
     if (!hesap) return;
 
+    // Tüm sayfaları çeken yardımcı
+    const fetchAllPages = async (params) => {
+      let allItems = [];
+      let page = 1;
+      while (true) {
+        const raw = await getGunlukUretimler({ ...params, page, pageSize: 1000 });
+        const items = Array.isArray(raw) ? raw : (raw?.data ?? raw?.items ?? []);
+        allItems = allItems.concat(items);
+        const total = raw?.total ?? 0;
+        if (allItems.length >= total || items.length === 0) break;
+        page++;
+      }
+      return allItems;
+    };
+
     try {
       // 1) Günlük üretim verisinden paketleme satırları
       const startDate = `${tarih}T${hesap.baslangic}:00`;
       const endDate = `${tarih}T${hesap.bitis}:59`;
       let gunlukList = [];
       try {
-        const raw = await getGunlukUretimler({
+        gunlukList = await fetchAllPages({
           fabrikaNo: 2,
           startDate: `${tarih}T00:00:00`,
           endDate: `${tarih}T23:59:59`,
           startTime: hesap.baslangic,
           endTime: hesap.bitis,
         });
-        const items = Array.isArray(raw) ? raw : (raw?.data ?? raw?.items ?? []);
-        gunlukList = items;
       } catch (_) {}
 
       if (gunlukList.length === 0) {
         try {
-          const raw = await getGunlukUretimler({
+          gunlukList = await fetchAllPages({
             fabrikaNo: 2,
             startDate: `${tarih}T00:00:00`,
             endDate: `${tarih}T23:59:59`,
           });
-          gunlukList = Array.isArray(raw) ? raw : (raw?.data ?? raw?.items ?? []);
         } catch (_) {}
       }
 
@@ -464,28 +545,44 @@ export default function VardiyaRaporScreen() {
         return m >= basMin || m <= bitMin; // gece vardiyası
       });
 
-      // Ürün bazında grupla
+      // Ürün koduna göre grupla — IHR/İHR soneki kaldırılıp kök koda göre birleştirilir
+      // Örn: YRM_6202 ve YRM_6202_IHR → tek satır YRM_6202
+      const stripIhr = (kod) => {
+        if (!kod) return kod;
+        return kod.replace(/[_\-]?(IHR|İHR|ihr|İhr)$/i, '');
+      };
       const paketMap = new Map();
       (filtered.length > 0 ? filtered : byHat).forEach(r => {
         const urun = r.urunAdi || r.stokAdi || r.urun || r.productName || 'Ürün';
-        const adet = Number(r.adet || r.kutuAdet || r.miktarAdet || 0) || 0;
-        const kg = Number(r.miktar || r.miktarKg || r.kg || r.uretilenMiktar || 0) || 0;
+        const kod = r.urunKodu || r.stokKodu || r.productCode || '';
+        const kokKod = stripIhr(kod);
+        const key = kokKod || urun;
+        const adet = Number(r.miktar || r.adet || r.kutuAdet || r.miktarAdet || r.toplamAdet || 0) || 0;
         const gramajRaw = r.gramaj || r.agirlik || r.netAgirlik || null;
-        const cur = paketMap.get(urun) || { calisillanUrunAdi: urun, urunTipi: '', miktarAdet: 0, toplamKg: 0, gramaj: null };
+        const cur = paketMap.get(key) || { urunKodu: kokKod || kod, calisillanUrunAdi: urun, urunTipi: '', miktarAdet: 0, gramaj: null };
+        if (!cur.urunKodu && (kokKod || kod)) cur.urunKodu = kokKod || kod;
         cur.miktarAdet += adet;
-        cur.toplamKg += kg;
         if (gramajRaw != null) cur.gramaj = Number(gramajRaw);
-        paketMap.set(urun, cur);
+        paketMap.set(key, cur);
       });
 
       const autoPaketler = [...paketMap.values()].map(p => {
-        const gramaj = p.gramaj ?? (p.miktarAdet > 0 && p.toplamKg > 0 ? (p.toplamKg * 1000) / p.miktarAdet : null);
+        // Gramaj: önce API'den, yoksa ürün adından parse et ("830 Gr" → 830)
+        let gramaj = p.gramaj;
+        if (gramaj == null) gramaj = parseGramajFromName(p.calisillanUrunAdi);
+
+        const adetVal = p.miktarAdet > 0 ? String(Math.round(p.miktarAdet)) : '';
+        const gramajVal = gramaj != null ? String(Math.round(gramaj)) : '';
+        // KG = adet × gramaj / 1000
+        const kgCalc = adetVal && gramajVal ? ((parseInt(adetVal, 10) * parseFloat(gramajVal)) / 1000).toFixed(1) : '';
+        const kodVal = p.urunKodu || '';
         return {
+          urunKodu: kodVal,
           calisillanUrunAdi: p.calisillanUrunAdi,
-          urunTipi: p.urunTipi || '',
-          miktarAdet: p.miktarAdet > 0 ? String(Math.round(p.miktarAdet)) : '',
-          gramaj: gramaj != null ? String(Number(gramaj.toFixed(3))) : '',
-          toplamKg: p.toplamKg > 0 ? String(Number(p.toplamKg.toFixed(3))) : '',
+          urunTipi: tipFromKod(kodVal),
+          miktarAdet: adetVal,
+          gramaj: gramajVal,
+          toplamKg: kgCalc,
         };
       }).filter(x => x.calisillanUrunAdi);
 
@@ -581,13 +678,17 @@ export default function VardiyaRaporScreen() {
       notlar: rapor.notlar || '',
     };
     setForm(f);
-    const pakItems = (rapor.paketlemeler || []).map(p => ({
-      calisillanUrunAdi: p.calisillanUrunAdi || '',
-      urunTipi: p.urunTipi || '',
-      miktarAdet: p.miktarAdet != null ? String(p.miktarAdet) : '',
-      gramaj: p.gramaj != null ? String(p.gramaj) : '',
-      toplamKg: p.toplamKg != null ? String(p.toplamKg) : '',
-    }));
+    const pakItems = (rapor.paketlemeler || []).map(p => {
+      const kodVal = p.urunKodu || '';
+      return {
+        urunKodu: kodVal,
+        calisillanUrunAdi: p.calisillanUrunAdi || '',
+        urunTipi: p.urunTipi || tipFromKod(kodVal),
+        miktarAdet: p.miktarAdet != null ? String(p.miktarAdet) : '',
+        gramaj: p.gramaj != null ? String(p.gramaj) : '',
+        toplamKg: p.toplamKg != null ? String(p.toplamKg) : '',
+      };
+    });
     setPaketler(pakItems.length ? pakItems : [emptyPaket()]);
     setModalVisible(true);
   }, []);
@@ -658,8 +759,9 @@ export default function VardiyaRaporScreen() {
         payload.uretimRenk = toNum(form.uretimRenk);
       }
 
-      // Paketlemeler nested
-      payload.paketlemeler = paketler.filter(p => p.calisillanUrunAdi || p.toplamKg).map(p => ({
+      // Prepare nested items (NOT sent inside create payload — API requires raporId)
+      const validPaketler = paketler.filter(p => p.calisillanUrunAdi || p.toplamKg).map(p => ({
+        urunKodu: p.urunKodu || null,
         calisillanUrunAdi: p.calisillanUrunAdi || null,
         urunTipi: p.urunTipi || null,
         miktarAdet: toInt(p.miktarAdet),
@@ -667,13 +769,27 @@ export default function VardiyaRaporScreen() {
         toplamKg: toNum(p.toplamKg),
       }));
 
-      // hatDurumlar — tekil hat, otomatik
-      payload.hatDurumlar = [{ hatAdi: form.calismaHat || null, hatDurumu: 'Çalışıyor' }];
+      const validHatDurum = { hatAdi: form.calismaHat || null, hatDurumu: 'Çalışıyor' };
 
       if (modalEditId) {
+        // Update: send nested items with existing raporId
+        payload.hatDurumlar = [{ raporId: modalEditId, ...validHatDurum }];
+        payload.paketlemeler = validPaketler.map(p => ({ raporId: modalEditId, ...p }));
         await updateVardiyaRaporV1(modalEditId, payload);
       } else {
-        await createVardiyaRaporV1(payload);
+        // Create: 2-step — first create rapor WITHOUT nested, then add them with raporId
+        payload.hatDurumlar = [];
+        payload.paketlemeler = [];
+        const created = await createVardiyaRaporV1(payload);
+        const raporId = created?.id || created?.raporId;
+        if (raporId) {
+          // Add hat durum
+          try { await createVardiyaHatDurum({ raporId, ...validHatDurum }); } catch (_) {}
+          // Add paketlemeler
+          for (const p of validPaketler) {
+            try { await createVardiyaPaketleme({ raporId, ...p }); } catch (_) {}
+          }
+        }
       }
 
       setModalVisible(false);
@@ -723,7 +839,7 @@ export default function VardiyaRaporScreen() {
           value={pendingDate} mode="date" display="default"
           onChange={(event, date) => {
             if (event.type === 'dismissed' || !date) { setShowDatePicker(false); return; }
-            setFilterDate(date.toISOString().split('T')[0]);
+            setFilterDate(toLocalDateStr(date));
             setShowDatePicker(false);
           }}
         />
@@ -739,7 +855,7 @@ export default function VardiyaRaporScreen() {
                   <Text style={styles.pickerCancelText}>İptal</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.pickerConfirm, { backgroundColor: INDIGO }]} onPress={() => {
-                  setFilterDate(pendingDate.toISOString().split('T')[0]);
+                  setFilterDate(toLocalDateStr(pendingDate));
                   setShowDatePicker(false);
                 }}>
                   <Text style={styles.pickerConfirmText}>Seç</Text>
@@ -778,16 +894,44 @@ export default function VardiyaRaporScreen() {
   // ── Yeni akış modu ─────────────────────────────────────────
   const renderNewFlow = () => (
     <>
+      {/* Past date toggle */}
+      <TouchableOpacity
+        style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg, paddingVertical: 8, gap: 8, backgroundColor: Colors.bgWhite }}
+        onPress={() => {
+          const next = !pastDateMode;
+          setPastDateMode(next);
+          if (!next) {
+            setFlowDate(today());
+            setSelectedVardiya(getCurrentVardiya());
+          }
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={{ width: 40, height: 22, borderRadius: 11, backgroundColor: pastDateMode ? INDIGO : '#D1D5DB', justifyContent: 'center', paddingHorizontal: 2 }}>
+          <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: pastDateMode ? 'flex-end' : 'flex-start' }} />
+        </View>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: pastDateMode ? INDIGO : Colors.textSecondary }}>
+          Geçmişe Yönelik Kayıt
+        </Text>
+      </TouchableOpacity>
+
       <View style={styles.flowBanner}>
-        <View>
-          <Text style={styles.infoLabel}>TARİH</Text>
+        <TouchableOpacity
+          activeOpacity={pastDateMode ? 0.7 : 1}
+          onPress={() => { if (pastDateMode) { setPendingFlowDate(new Date(flowDate + 'T00:00:00')); setShowFlowDatePicker(true); } }}
+        >
+          <Text style={styles.infoLabel}>TARİH {pastDateMode ? '✎' : ''}</Text>
           <Text style={styles.infoValue}>{formatTR(flowDate)}</Text>
-        </View>
-        <View style={[styles.vardiyaPill, { backgroundColor: vardiyaDef?.bgColor, borderColor: vardiyaDef?.color }]}>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.vardiyaPill, { backgroundColor: vardiyaDef?.bgColor, borderColor: vardiyaDef?.color }]}
+          activeOpacity={pastDateMode ? 0.7 : 1}
+          onPress={() => { if (pastDateMode) setShowVardiyaPicker(true); }}
+        >
           <Text style={[styles.vardiyaPillText, { color: vardiyaDef?.color }]}>
-            Vardiya {selectedVardiya} ({vardiyaDef?.baslangic}–{vardiyaDef?.bitis})
+            Vardiya {selectedVardiya} ({vardiyaDef?.baslangic}–{vardiyaDef?.bitis}) {pastDateMode ? '✎' : ''}
           </Text>
-        </View>
+        </TouchableOpacity>
       </View>
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color={INDIGO} /></View>
@@ -816,11 +960,14 @@ export default function VardiyaRaporScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bgApp }}>
         {/* Header */}
         <View style={fStyles.header}>
+          <View style={[fStyles.headerIconWrap, { backgroundColor: '#EEF2FF' }]}>
+            <Icon name="assignment" size={18} color={INDIGO} />
+          </View>
           <Text style={fStyles.headerTitle}>
             {modalEditId ? 'Rapor Düzenle' : `${form.calismaHat || 'Yeni'} — Rapor`}
           </Text>
-          <TouchableOpacity onPress={() => setModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <Icon name="close" size={24} color={Colors.textSecondary} />
+          <TouchableOpacity onPress={() => setModalVisible(false)} style={fStyles.headerCloseBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Icon name="close" size={20} color={Colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
@@ -891,7 +1038,7 @@ export default function VardiyaRaporScreen() {
               </Field>
             </Row>
 
-            {form.injectlemeKodu ? (
+            {!showKolileme && form.injectlemeKodu ? (
               <Field label="INJECT KODU">
                 <View style={[fStyles.input, fStyles.readOnly, { flexDirection: 'row', justifyContent: 'space-between' }]}>
                   <Text style={[fStyles.readOnlyText, { flex: 1, fontSize: 13 }]}>{form.injectlemeKodu}</Text>
@@ -902,22 +1049,26 @@ export default function VardiyaRaporScreen() {
               </Field>
             ) : null}
 
-            <Row>
-              <Field label="TÜK. DOMATES HAMMADDE (KG)" half>
-                <TextInput style={fStyles.input} value={form.girenHammaddeMiktari || ''} onChangeText={t => numInput('girenHammaddeMiktari', t)} keyboardType="decimal-pad" placeholderTextColor={Colors.textTertiary} />
-              </Field>
-              <Field label="TÜK. ASEPTİK FIÇI" half>
-                <TextInput style={fStyles.input} value={form.tuketilenAseptikFici || ''} onChangeText={t => numInput('tuketilenAseptikFici', t)} keyboardType="decimal-pad" placeholderTextColor={Colors.textTertiary} />
-              </Field>
-            </Row>
-            <Row>
-              <Field label="FIÇI KG" half>
-                <TextInput style={fStyles.input} value={form.ficiKg || ''} onChangeText={t => numInput('ficiKg', t)} keyboardType="decimal-pad" placeholderTextColor={Colors.textTertiary} />
-              </Field>
-              <Field label="KAMYON SAYISI" half>
-                <TextInput style={fStyles.input} value={form.kamyonSayisi || ''} onChangeText={t => intInput('kamyonSayisi', t)} keyboardType="number-pad" placeholderTextColor={Colors.textTertiary} />
-              </Field>
-            </Row>
+            {!showKolileme && (
+              <Row>
+                <Field label="TÜK. DOMATES HAMMADDE (KG)" half>
+                  <TextInput style={fStyles.input} value={form.girenHammaddeMiktari || ''} onChangeText={t => numInput('girenHammaddeMiktari', t)} keyboardType="decimal-pad" placeholderTextColor={Colors.textTertiary} />
+                </Field>
+                <Field label="TÜK. ASEPTİK FIÇI" half>
+                  <TextInput style={fStyles.input} value={form.tuketilenAseptikFici || ''} onChangeText={t => numInput('tuketilenAseptikFici', t)} keyboardType="decimal-pad" placeholderTextColor={Colors.textTertiary} />
+                </Field>
+              </Row>
+            )}
+            {!showKolileme && (
+              <Row>
+                <Field label="FIÇI KG" half>
+                  <TextInput style={fStyles.input} value={form.ficiKg || ''} onChangeText={t => numInput('ficiKg', t)} keyboardType="decimal-pad" placeholderTextColor={Colors.textTertiary} />
+                </Field>
+                <Field label="KAMYON SAYISI" half>
+                  <TextInput style={fStyles.input} value={form.kamyonSayisi || ''} onChangeText={t => intInput('kamyonSayisi', t)} keyboardType="number-pad" placeholderTextColor={Colors.textTertiary} />
+                </Field>
+              </Row>
+            )}
             <Row>
               <Field label="TOPLAM ÜRETİM MİKTARI" half>
                 <TextInput style={fStyles.input} value={form.toplamUretimMiktari || ''} onChangeText={t => numInput('toplamUretimMiktari', t)} keyboardType="decimal-pad" placeholderTextColor={Colors.textTertiary} />
@@ -939,24 +1090,34 @@ export default function VardiyaRaporScreen() {
                   </TouchableOpacity>
                 </View>
                 <Row>
-                  <Field label="ÜRÜN ADI" half>
-                    <TextInput style={fStyles.input} value={pak.calisillanUrunAdi} onChangeText={t => setPaketler(p => p.map((x, i) => i === idx ? { ...x, calisillanUrunAdi: t } : x))} placeholderTextColor={Colors.textTertiary} />
+                  <Field label="ÜRÜN KODU" half>
+                    <TextInput style={fStyles.input} value={pak.urunKodu} onChangeText={t => setPaketler(p => p.map((x, i) => i === idx ? { ...x, urunKodu: t, urunTipi: tipFromKod(t) } : x))} placeholderTextColor={Colors.textTertiary} />
                   </Field>
-                  <Field label="TİP" half>
-                    <TextInput style={fStyles.input} value={pak.urunTipi} onChangeText={t => setPaketler(p => p.map((x, i) => i === idx ? { ...x, urunTipi: t } : x))} placeholderTextColor={Colors.textTertiary} />
+                  <Field label="ÜRÜN ADI" half>
+                    <TextInput style={fStyles.input} value={pak.calisillanUrunAdi} onChangeText={t => setPaketler(p => p.map((x, i) => {
+                      if (i !== idx) return x;
+                      const g = parseGramajFromName(t);
+                      const newGramaj = g != null ? String(g) : x.gramaj;
+                      const m = parseInt(x.miktarAdet, 10) || 0;
+                      const gVal = parseFloat(String(newGramaj).replace(',', '.')) || 0;
+                      const newKg = m && gVal ? ((m * gVal) / 1000).toFixed(2) : x.toplamKg;
+                      return { ...x, calisillanUrunAdi: t, gramaj: newGramaj, toplamKg: newKg };
+                    }))} placeholderTextColor={Colors.textTertiary} />
                   </Field>
                 </Row>
                 <Row>
-                  <Field label="ADET" half>
-                    <TextInput style={fStyles.input} value={pak.miktarAdet} keyboardType="number-pad" onChangeText={t => {
-                      const v = t.replace(/[^0-9]/g, '');
-                      setPaketler(p => p.map((x, i) => {
-                        if (i !== idx) return x;
-                        const g = parseFloat(String(x.gramaj).replace(',', '.')) || 0;
-                        return { ...x, miktarAdet: v, toplamKg: v && g ? ((parseInt(v, 10) * g) / 1000).toFixed(2) : x.toplamKg };
-                      }));
-                    }} placeholderTextColor={Colors.textTertiary} />
+                  <Field label="TİP" half>
+                    <View style={[fStyles.input, fStyles.readOnly]}>
+                      <Text style={fStyles.readOnlyText}>{pak.urunTipi || '—'}</Text>
+                    </View>
                   </Field>
+                  <Field label="KG" half>
+                    <View style={[fStyles.input, fStyles.readOnly]}>
+                      <Text style={fStyles.readOnlyText}>{pak.toplamKg || '—'}</Text>
+                    </View>
+                  </Field>
+                </Row>
+                <Row>
                   <Field label="GRAMAJ" half>
                     <TextInput style={fStyles.input} value={pak.gramaj} keyboardType="decimal-pad" onChangeText={t => {
                       const v = t.replace(/[^0-9.,]/g, '');
@@ -968,15 +1129,19 @@ export default function VardiyaRaporScreen() {
                       }));
                     }} placeholderTextColor={Colors.textTertiary} />
                   </Field>
-                  <Field label="TOP. KG" half>
-                    <TextInput style={[fStyles.input, fStyles.readOnly]} value={pak.toplamKg} keyboardType="decimal-pad" onChangeText={t => setPaketler(p => p.map((x, i) => i === idx ? { ...x, toplamKg: t.replace(/[^0-9.,]/g, '') } : x))} placeholderTextColor={Colors.textTertiary} />
+                  <Field label="TOP. ADET" half>
+                    <TextInput style={fStyles.input} value={pak.miktarAdet} keyboardType="number-pad" onChangeText={t => {
+                      const v = t.replace(/[^0-9]/g, '');
+                      setPaketler(p => p.map((x, i) => {
+                        if (i !== idx) return x;
+                        const g = parseFloat(String(x.gramaj).replace(',', '.')) || 0;
+                        return { ...x, miktarAdet: v, toplamKg: v && g ? ((parseInt(v, 10) * g) / 1000).toFixed(2) : x.toplamKg };
+                      }));
+                    }} placeholderTextColor={Colors.textTertiary} />
                   </Field>
                 </Row>
               </View>
             ))}
-            <TouchableOpacity style={fStyles.addRowBtn} onPress={() => setPaketler(p => [...p, emptyPaket()])}>
-              <Text style={fStyles.addRowText}>+ Paket Ekle</Text>
-            </TouchableOpacity>
 
             {/* ═══ DEĞERLER (kolileme hariç) ═══ */}
             {!showKolileme && (<>
@@ -1060,6 +1225,62 @@ export default function VardiyaRaporScreen() {
 
       {mode === 'list' ? renderList() : renderNewFlow()}
       {renderFormModal()}
+
+      {/* ── Tarih Picker (geçmişe yönelik) ──────────── */}
+      {showFlowDatePicker && Platform.OS === 'ios' && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowFlowDatePicker(false)}>
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+            <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16 }}>
+              <DateTimePicker value={pendingFlowDate} mode="date" display="spinner" maximumDate={new Date()}
+                onChange={(_, d) => { if (d) setPendingFlowDate(d); }} locale="tr" />
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+                <TouchableOpacity onPress={() => setShowFlowDatePicker(false)} style={{ padding: 10 }}>
+                  <Text style={{ color: Colors.textSecondary, fontWeight: '600', fontSize: 15 }}>İptal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => {
+                  setFlowDate(toLocalDateStr(pendingFlowDate));
+                  setShowFlowDatePicker(false);
+                }} style={{ padding: 10 }}>
+                  <Text style={{ color: INDIGO, fontWeight: '700', fontSize: 15 }}>Tamam</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+      {showFlowDatePicker && Platform.OS === 'android' && (
+        <DateTimePicker value={pendingFlowDate} mode="date" display="default" maximumDate={new Date()}
+          onChange={(e, d) => {
+            setShowFlowDatePicker(false);
+            if (e.type === 'set' && d) setFlowDate(toLocalDateStr(d));
+          }} />
+      )}
+
+      {/* ── Vardiya Picker (geçmişe yönelik) ──────────── */}
+      {showVardiyaPicker && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowVardiyaPicker(false)}>
+          <TouchableOpacity style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)' }}
+            activeOpacity={1} onPress={() => setShowVardiyaPicker(false)}>
+            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '75%', ...Shadows.md }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 12, textAlign: 'center' }}>Vardiya Seç</Text>
+              {VARDIYA_ORDER.map(v => {
+                const d = VARDIYA_DEFS[v];
+                const sel = v === selectedVardiya;
+                return (
+                  <TouchableOpacity key={v} onPress={() => { setSelectedVardiya(v); setShowVardiyaPicker(false); }}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14,
+                      borderRadius: 10, marginBottom: 6, backgroundColor: sel ? (d?.bgColor || '#EEF2FF') : '#F9FAFB',
+                      borderWidth: sel ? 1.5 : 0, borderColor: sel ? (d?.color || INDIGO) : 'transparent' }}>
+                    <Text style={{ fontSize: 15, fontWeight: sel ? '700' : '500', color: sel ? (d?.color || INDIGO) : Colors.textPrimary }}>
+                      {v} Vardiyası ({d?.baslangic}–{d?.bitis})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -1092,7 +1313,7 @@ const hatCardStyles = StyleSheet.create({
     padding: Spacing.lg, marginBottom: Spacing.md, ...Shadows.sm,
     borderWidth: 1.5, borderColor: Colors.borderLight,
   },
-  cardCompleted: { borderColor: INDIGO },
+  cardCompleted: { borderColor: '#D1D5DB' },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   iconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   iconText: { fontSize: 20, fontWeight: '800' },
@@ -1104,11 +1325,19 @@ const hatCardStyles = StyleSheet.create({
 // ── Form styles ──────────────────────────────────────────────
 const fStyles = StyleSheet.create({
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: Spacing.lg, paddingVertical: 14,
     backgroundColor: Colors.bgWhite, borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
   },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary },
+  headerIconWrap: {
+    width: 32, height: 32, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center', marginRight: 10,
+  },
+  headerTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
+  headerCloseBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: Colors.bgSurface, alignItems: 'center', justifyContent: 'center',
+  },
   vardiyaBanner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 12, paddingVertical: 10, borderRadius: Radius.sm, borderWidth: 1.5,
@@ -1142,8 +1371,10 @@ const fStyles = StyleSheet.create({
   multiCardHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm },
   multiCardTitle: { fontSize: 13, fontWeight: '700', color: Colors.textSecondary },
   addRowBtn: {
-    alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8,
+    flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8,
     borderRadius: Radius.sm, borderWidth: 1.5, borderColor: INDIGO, backgroundColor: '#EEF2FF',
+    marginBottom: Spacing.lg,
   },
   addRowText: { fontSize: 13, fontWeight: '700', color: INDIGO },
   footer: {

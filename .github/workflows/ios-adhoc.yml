@@ -1,0 +1,146 @@
+name: iOS Ad Hoc Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: 'Güncelleme notu'
+        default: 'Hata düzeltmeleri ve iyileştirmeler'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: cd ios && pod install --repo-update
+
+      - name: Sertifikaları yükle
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERT_PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          KC_PASS=$(openssl rand -base64 16)
+          security create-keychain -p "$KC_PASS" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KC_PASS" build.keychain
+          echo "$CERT" | base64 --decode > cert.p12
+          security import cert.p12 -k build.keychain \
+            -P "$CERT_PASS" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: -s -k "$KC_PASS" build.keychain
+          echo "$PROFILE" | base64 --decode > profile.mobileprovision
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          UUID=$(security cms -D -i profile.mobileprovision \
+            | /usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin)
+          cp profile.mobileprovision \
+            ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+
+      - name: Build numarası ayarla
+        run: |
+          /usr/libexec/PlistBuddy -c \
+            "Set :CFBundleVersion ${{ github.run_number }}" \
+            ios/MobileApp/Info.plist
+          VERSION=$(/usr/libexec/PlistBuddy -c \
+            'Print :CFBundleShortVersionString' \
+            ios/MobileApp/Info.plist)
+          echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD=${{ github.run_number }}" >> $GITHUB_ENV
+
+      - name: Archive
+        run: |
+          xcodebuild -workspace ios/MobileApp.xcworkspace \
+            -scheme MobileApp -configuration Release \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY='Apple Distribution' \
+            PROVISIONING_PROFILE_SPECIFIER='YeniCiftlik AdHoc' \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} archive
+
+      - name: IPA Export
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            -exportPath "$RUNNER_TEMP/ipa" \
+            -exportOptionsPlist ios/ExportOptions.plist
+
+      - name: manifest.plist ve version.json oluştur
+        run: |
+          IPA_NAME=$(ls "$RUNNER_TEMP/ipa/"*.ipa | head -1 | xargs basename)
+          TAG="yeniciftlik-ios-v${{ env.BUILD }}"
+
+          cat > "$RUNNER_TEMP/ipa/manifest.plist" << MANIFEST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>items</key>
+            <array>
+              <dict>
+                <key>assets</key>
+                <array>
+                  <dict>
+                    <key>kind</key>
+                    <string>software-package</string>
+                    <key>url</key>
+                    <string>https://github.com/${{ github.repository }}/releases/download/${TAG}/${IPA_NAME}</string>
+                  </dict>
+                </array>
+                <key>metadata</key>
+                <dict>
+                  <key>bundle-identifier</key>
+                  <string>com.yeniciftlik.uretimtakip</string>
+                  <key>bundle-version</key>
+                  <string>${{ env.APP_VERSION }}</string>
+                  <key>kind</key>
+                  <string>software</string>
+                  <key>title</key>
+                  <string>Yeniçiftlik</string>
+                </dict>
+              </dict>
+            </array>
+          </dict>
+          </plist>
+          MANIFEST
+
+          cat > "$RUNNER_TEMP/ipa/version.json" << VERSION_JSON
+          {
+            "version": "${{ env.APP_VERSION }}",
+            "build": ${{ env.BUILD }},
+            "versionCode": ${{ env.BUILD }},
+            "release_notes": "${{ github.event.inputs.release_notes || 'Hata düzeltmeleri ve iyileştirmeler' }}",
+            "mandatory": false
+          }
+          VERSION_JSON
+
+      - name: GitHub Release oluştur
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: yeniciftlik-ios-v${{ env.BUILD }}
+          name: iOS v${{ env.APP_VERSION }} (Build ${{ env.BUILD }})
+          body: |
+            {"versionCode": ${{ env.BUILD }}}
+            ${{ github.event.inputs.release_notes || 'Hata düzeltmeleri ve iyileştirmeler' }}
+          files: |
+            ${{ runner.temp }}/ipa/*.ipa
+            ${{ runner.temp }}/ipa/manifest.plist
+            ${{ runner.temp }}/ipa/version.json
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Temizlik
+        if: always()
+        run: |
+          security delete-keychain build.keychain 2>/dev/null || true

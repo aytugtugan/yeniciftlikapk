@@ -82,8 +82,8 @@ android {
         applicationId "com.mobileapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 12
-        versionName "1.9.0"
+        versionCode 45
+        versionName "1.25.4"
         resConfigs "en", "tr"
     }
     signingConfigs {

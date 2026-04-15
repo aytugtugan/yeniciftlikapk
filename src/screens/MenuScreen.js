@@ -1,7 +1,7 @@
 import React, { useContext, useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar,
-  Alert, ActivityIndicator, Platform, Dimensions,
+  Alert, ActivityIndicator, Platform, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -10,23 +10,24 @@ import { Colors, Shadows } from '../theme';
 import { AppDataContext } from '../context/AppDataContext';
 import { checkForUpdate, downloadApk, installApk, getCurrentVersion } from '../services/updateService';
 
-const { width: SCREEN_W } = Dimensions.get('window');
 const CARD_GAP = 12;
 const CARD_PAD = 16;
-const CARD_SIZE = (SCREEN_W - CARD_PAD * 2 - CARD_GAP * 2) / 3;
 
 const menuItems = [
   { icon: 'show-chart', title: 'Üretimler', desc: 'Üretim modülleri', route: 'UretimlerModul', color: '#0095F6', bg: '#E8F4FD' },
   { icon: 'verified', title: 'Kalite', desc: 'Kalite kontrol', route: 'KaliteModul', color: '#7C3AED', bg: '#F3E8FF' },
   { icon: 'description', title: 'Formlar', desc: 'Kontrol formları', route: 'FormlarStack', color: '#059669', bg: '#ECFDF5' },
   { icon: 'bar-chart', title: 'Rapor', desc: 'Günlük raporlar', route: 'RaporStack', color: '#D97706', bg: '#FEF3C7' },
-  { icon: 'local-shipping', title: 'Depo Sevk\nHazırlık', desc: 'Depo sevk hazırlık', route: 'DepoSevk', color: '#DC2626', bg: '#FEE2E2' },
+  { icon: 'receipt-long', title: 'Siparişler', desc: 'Müşteri siparişleri', route: 'Siparisler', color: '#0F766E', bg: '#CCFBF1' },
   { icon: 'build', title: 'Arıza\nKayıtları', desc: 'Arıza kaydet ve çöz', route: 'ArizaList', color: '#EA580C', bg: '#FFF7ED' },
   { icon: 'person', title: 'Profil', desc: 'Hesap ve ayarlar', route: 'Profil', color: '#6366F1', bg: '#EEF2FF' },
 ];
 
 export default function MenuScreen() {
   const insets = useSafeAreaInsets();
+  const { width: screenW } = useWindowDimensions();
+  const numCols = screenW >= 600 ? 4 : 3;
+  const cardSize = (screenW - CARD_PAD * 2 - CARD_GAP * (numCols - 1)) / numCols;
   const navigation = useNavigation();
   const { loggedInUser, selectedFabrika, logout } = useContext(AppDataContext);
 
@@ -36,7 +37,7 @@ export default function MenuScreen() {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [currentVersionName, setCurrentVersionName] = useState('1.0.0');
 
-  useEffect(() => { getCurrentVersion().then(v => setCurrentVersionName(v.versionName)); }, []);
+  useEffect(() => { getCurrentVersion().then(v => setCurrentVersionName(v?.versionName || '1.0.0')).catch(() => {}); }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -75,7 +76,7 @@ export default function MenuScreen() {
 
   const fullName = loggedInUser?.fullName || loggedInUser?.userName || 'Kullanıcı';
   const initial = fullName.charAt(0).toUpperCase();
-  const fabrikaAdi = selectedFabrika?.fabrikaAdi || 'Yeni Çiftlik';
+  const fabrikaAdi = selectedFabrika?.fabrikaAdi || 'Yeniçiftlik';
 
   return (
     <View style={styles.container}>
@@ -128,7 +129,7 @@ export default function MenuScreen() {
           {menuItems.map((item, i) => (
             <TouchableOpacity
               key={i}
-              style={[styles.card, { width: CARD_SIZE, height: CARD_SIZE }]}
+              style={[styles.card, { width: cardSize, height: cardSize }]}
               onPress={() => {
                 if (item.route === 'DepoSevk') {
                   navigation.navigate('FormlarStack', { screen: 'FormDetail', params: { formKey: 'depoSevk' } });
@@ -147,7 +148,7 @@ export default function MenuScreen() {
         </View>
 
         {/* Version */}
-        <Text style={styles.version}>Yeni Çiftlik Mobil v{currentVersionName}</Text>
+        <Text style={styles.version}>Yeniçiftlik Mobil v{currentVersionName}</Text>
       </ScrollView>
     </View>
   );

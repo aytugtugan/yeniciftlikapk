@@ -306,41 +306,123 @@ function normalizeOrder(raw) {
   };
 }
 
-// ─── Satış API ───────────────────────────────────────────
+// ─── Satış API (5050) ────────────────────────────────────
+
+const SATIS_BASE_URL = 'http://10.35.20.17:5050/api';
+let _satisToken = null;
+
+async function ensureSatisToken() {
+  if (_satisToken) return _satisToken;
+  const res = await fetch(`${SATIS_BASE_URL}/Auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userName: 'a', password: '2026' }),
+  });
+  if (!res.ok) throw new Error('Satış API auth hatası');
+  const data = await res.json();
+  _satisToken = data.token;
+  return _satisToken;
+}
+
+async function satisRequest(endpoint) {
+  const token = await ensureSatisToken();
+  const url = `${SATIS_BASE_URL}${endpoint}`;
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+  };
+  let res = await fetch(url, { method: 'GET', headers });
+  if (res.status === 401) {
+    _satisToken = null;
+    const newToken = await ensureSatisToken();
+    res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${newToken}` },
+    });
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Satış API Hatası ${res.status}: ${text || res.statusText}`);
+  }
+  const text = await res.text();
+  if (!text || text.trim() === '') return null;
+  return JSON.parse(text);
+}
 
 // Siparişler
-export async function getSiparisler(token, params = {}) {
+// Logo ERP status: 1=Açık(DevamEdiyor), 2=Beklemede, 3=Kapatıldı, 4=Tamamlandı(Sevk)
+export async function getSiparisler(_token, params = {}) {
   const qp = new URLSearchParams();
+  let statusVal = '1,4';
+  if (params.status === '1') statusVal = '1';
+  else if (params.status === '4') statusVal = '4';
+  qp.append('status', statusVal);
+  qp.append('fabrikaNo', '2'); // YCIFTLIK
+  if (params.cariKodu) qp.append('cariKodu', params.cariKodu);
+  if (params.siparisNo) qp.append('fisNo', params.siparisNo);
+  if (params.startDate) qp.append('startDate', params.startDate);
+  if (params.endDate) qp.append('endDate', params.endDate);
   if (params.page) qp.append('page', params.page.toString());
   if (params.pageSize) qp.append('pageSize', params.pageSize.toString());
-  if (params.musteriAdi) qp.append('musteriAdi', params.musteriAdi);
-  if (params.siparisNo) qp.append('siparisNo', params.siparisNo);
-  if (params.status && params.status !== 'all') {
-    qp.append('Status', params.status);
-  }
-  qp.append('FabrikaId', '4');
-  const qs = qp.toString();
-  return oncuRequest(`/v1/Satislar/siparisler${qs ? '?' + qs : ''}`, token);
+  const data = await satisRequest(`/Satislar/siparisler?${qp.toString()}`);
+  return {
+    items: (data?.items || []).map(item => ({
+      siparisNo: item.ficheno,
+      cariKodu: item.cariKodu,
+      cariAdi: item.cariAdi || item.musteriAdi || '',
+      cariOzelKod: item.cariOzelKod,
+      odemePlani: item.odemePlaniKodu,
+      siparisTarihi: item.tarih,
+      toplamSiparisMiktari: item.toplamNet,
+      status: item.status,
+      devamEdiyor: item.status === 1,
+    })),
+    totalRows: data?.total || 0,
+  };
 }
 
 // Sipariş Detay
-export async function getSiparisDetay(token, params = {}) {
-  const qp = new URLSearchParams();
-  if (params.siparisNo) qp.append('siparisNo', params.siparisNo);
-  if (params.page) qp.append('page', params.page.toString());
-  if (params.pageSize) qp.append('pageSize', params.pageSize.toString());
-  const qs = qp.toString();
-  return oncuRequest(`/v1/Satislar/detay${qs ? '?' + qs : ''}`, token);
+export async function getSiparisDetay(_token, params = {}) {
+  const ficheno = params.siparisNo || '';
+  const data = await satisRequest(`/Satislar/siparisler-detay?ficheno=${encodeURIComponent(ficheno)}`);
+  return {
+    header: data?.header || {},
+    items: (data?.satirlar || []).map(item => ({
+      stokKodu: item.urunKodu,
+      stokAdi: item.urunAdi,
+      siparisMiktari: item.miktar,
+      birimFiyat: item.birimFiyat,
+      satirTutar: item.satirTutar,
+      birim: item.unitCode,
+      netKg: item.satirNetKg,
+      brutKg: item.satirBrutKg,
+    })),
+  };
 }
 
-// Sipariş Sevkiyatları
-export async function getSiparisSevkiyatlar(token, params = {}) {
-  const qp = new URLSearchParams();
-  if (params.siparisNo) qp.append('siparisNo', params.siparisNo);
-  if (params.page) qp.append('page', params.page.toString());
-  if (params.pageSize) qp.append('pageSize', params.pageSize.toString());
-  const qs = qp.toString();
-  return oncuRequest(`/v1/Satislar/sevkiyatlar${qs ? '?' + qs : ''}`, token);
+// Sipariş Sevkiyatları (Tedarik API)
+export async function getSiparisSevkiyatlar(_token, params = {}) {
+  const ficheno = params.siparisNo || '';
+  const data = await satisRequest(`/Tedarik/siparis-cikislar?ficheno=${encodeURIComponent(ficheno)}`);
+  return {
+    items: Array.isArray(data) ? data : (data?.items || []),
+  };
+}
+
+// Cari Detay (tek cari kodu için) — /cariler endpointi /api prefix'i olmadan çalışır
+export async function getCariDetay(_token, cariKodu) {
+  const token = await ensureSatisToken();
+  const url = `http://10.35.20.17:5050/cariler/cari-detaylar?cariKodu=${encodeURIComponent(cariKodu)}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  const text = await res.text();
+  if (!text || text.trim() === '') return null;
+  const data = JSON.parse(text);
+  if (Array.isArray(data) && data.length > 0) return data[0];
+  return data || null;
 }
 
 // Cari Özetler (Müşteri Profilleri)
@@ -356,19 +438,47 @@ export async function getCariOzetler(token, params = {}) {
 
 // ─── Sevkiyat API ────────────────────────────────────────
 
-// Sevkiyat Listesi
+// Sevkiyat Listesi (4000 API - /v1/satislar/sevkiyatlar)
 export async function getSevkiyatlar(token, params = {}) {
   const qp = new URLSearchParams();
-  qp.append('FabrikaNo', '4');
-  if (params.startDate) qp.append('StartDate', params.startDate);
-  if (params.endDate) qp.append('EndDate', params.endDate);
+  if (params.startDate) qp.append('Start', params.startDate);
+  if (params.endDate) qp.append('End', params.endDate);
+  if (params.musteriKodu) qp.append('MusteriKodu', params.musteriKodu);
+  if (params.musteriAdi) qp.append('MusteriAdi', params.musteriAdi);
+  if (params.siparisNo) qp.append('SiparisNo', params.siparisNo);
+  if (params.irsaliyeNo) qp.append('IrsaliyeNo', params.irsaliyeNo);
   if (params.page) qp.append('Page', params.page.toString());
   if (params.pageSize) qp.append('PageSize', params.pageSize.toString());
+  qp.append('SortBy', 'sevktarihi');
+  qp.append('SortDir', 'desc');
   const qs = qp.toString();
-  return oncuRequest(`/v1/sevkiyatlar${qs ? '?' + qs : ''}`, token);
+  const data = await oncuRequest(`/v1/satislar/sevkiyatlar${qs ? '?' + qs : ''}`, token);
+  return {
+    items: (data?.items || []).map(item => ({
+      siparisNo: item.siparisNo,
+      irsaliyeNo: item.irsaliyeNo,
+      sevkTarihi: item.sevkTarihi,
+      tarih: item.sevkTarihi,
+      musteriAdi: item.musteriAdi,
+      toplamMiktar: item.toplamSevkMiktari,
+      toplamSevkMiktari: item.toplamSevkMiktari,
+    })),
+    totalRows: data?.totalRows ?? data?.total ?? 0,
+  };
 }
 
-// Sevkiyat Detay
-export async function getSevkiyatDetay(token, irsaliyeNo) {
-  return oncuRequest(`/v1/sevkiyatlar/sevkiyatlar-detay?IrsaliyeNo=${encodeURIComponent(irsaliyeNo)}`, token);
+// Sevkiyat Detay - header bilgileri (5050 API - /Tedarik/cikislar-detay)
+export async function getSevkiyatDetay(_token, irsaliyeNo, satisTipi = 'IC') {
+  const qp = new URLSearchParams();
+  qp.append('irsaliyeno', irsaliyeNo);
+  qp.append('satisTipi', satisTipi);
+  const data = await satisRequest(`/Tedarik/cikislar-detay?${qp.toString()}`);
+  return Array.isArray(data) ? data : (data ? [data] : []);
+}
+
+// Sevkiyat Kalemleri - sipariş bazlı çıkış kalemleri (5050 API - /Tedarik/siparis-cikislar)
+export async function getSevkiyatKalemler(_token, siparisNo) {
+  if (!siparisNo) return [];
+  const data = await satisRequest(`/Tedarik/siparis-cikislar?ficheno=${encodeURIComponent(siparisNo)}`);
+  return Array.isArray(data) ? data : [];
 }

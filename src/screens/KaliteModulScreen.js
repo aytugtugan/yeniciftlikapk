@@ -1,30 +1,26 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import SimpleIcon from '../components/SimpleIcon';
-import { Colors, Typography, Spacing, Radius, Shadows } from '../theme';
+import { Colors, Shadows } from '../theme';
+
+const CARD_GAP = 12;
+const CARD_PAD = 16;
 
 const modules = [
-  {
-    icon: 'assignment',
-    title: 'Kalite Kontrol Form',
-    description: 'Üretim hattında kalite kontrol işlemi yap',
-    route: 'StationScan',
-  },
-  {
-    icon: 'history',
-    title: 'Kalite Form Kayıtları',
-    description: 'Geçmiş kalite kontrol kayıtlarını görüntüle',
-    route: 'KaliteFormKayit',
-  },
+  { icon: 'assignment', title: 'Kalite\nKontrol Form', route: 'StationScan', color: '#7C3AED', bg: '#F3E8FF' },
+  { icon: 'history', title: 'Form\nKayıtları', route: 'KaliteFormKayit', color: '#0095F6', bg: '#E8F4FD' },
 ];
 
 export default function KaliteModulScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const { width: screenW } = useWindowDimensions();
+  const numCols = screenW >= 600 ? 4 : 3;
+  const cardSize = (screenW - CARD_PAD * 2 - CARD_GAP * (numCols - 1)) / numCols;
 
   return (
     <View style={styles.container}>
@@ -37,23 +33,26 @@ export default function KaliteModulScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {modules.map((mod, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.moduleCard}
-            onPress={() => navigation.navigate(mod.route)}
-            activeOpacity={0.7}>
-            <View style={styles.moduleIcon}>
-              <SimpleIcon name={mod.icon} size={24} color={Colors.brandPrimary} />
-            </View>
-            <View style={styles.moduleContent}>
-              <Text style={styles.moduleTitle}>{mod.title}</Text>
-              <Text style={styles.moduleDescription}>{mod.description}</Text>
-            </View>
-            <SimpleIcon name="chevron_right" size={24} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        ))}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.grid}>
+          {modules.map((mod, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[styles.card, { width: cardSize, height: cardSize }]}
+              onPress={() => navigation.navigate(mod.route)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.cardIcon, { backgroundColor: mod.bg }]}>
+                <SimpleIcon name={mod.icon} size={24} color={mod.color} />
+              </View>
+              <Text style={styles.cardTitle}>{mod.title}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -66,20 +65,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingBottom: 12, backgroundColor: Colors.bgWhite,
     borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
   },
-  backButton: { padding: 4, width: 40 },
   headerTitle: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary },
   placeholder: { width: 40 },
   scrollView: { flex: 1 },
-  scrollContent: { padding: 16, gap: 12 },
-  moduleCard: {
-    flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16,
-    gap: 14, backgroundColor: Colors.bgWhite, ...Shadows.sm,
+  scrollContent: { padding: CARD_PAD, gap: 16 },
+  grid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: CARD_GAP,
   },
-  moduleIcon: {
-    width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: Colors.brandPrimaryLight,
+  card: {
+    backgroundColor: Colors.bgWhite, borderRadius: 16,
+    padding: 12, justifyContent: 'center', alignItems: 'center',
+    ...Shadows.sm,
   },
-  moduleContent: { flex: 1 },
-  moduleTitle: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
-  moduleDescription: { fontSize: 13, marginTop: 2, color: Colors.textSecondary },
+  cardIcon: {
+    width: 44, height: 44, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
+  cardTitle: { fontSize: 12, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center' },
 });

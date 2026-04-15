@@ -24,6 +24,7 @@ import GunlukUretimlerScreen from './screens/GunlukUretimlerScreen';
 import UretimFormScreen from './screens/UretimFormScreen';
 import GunlukRaporListScreen from './screens/GunlukRaporListScreen';
 import GunlukRaporDetayScreen from './screens/GunlukRaporDetayScreen';
+import RaporModulScreen from './screens/RaporModulScreen';
 import OncuUretimSorguScreen from './screens/OncuUretimSorguScreen';
 import OncuUretimDetayScreen from './screens/OncuUretimDetayScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -46,6 +47,9 @@ import ArizaFormScreen from './screens/ArizaFormScreen';
 import ArizaListScreen from './screens/ArizaListScreen';
 import ArizaDetailScreen from './screens/ArizaDetailScreen';
 import StokListesiScreen from './screens/StokListesiScreen';
+import FireListScreen from './screens/FireListScreen';
+import SiparislerScreen from './screens/SiparislerScreen';
+import SiparisDetayScreen from './screens/SiparisDetayScreen';
 
 import SevkiyatListesiScreen from './screens/SevkiyatListesiScreen';
 import SevkiyatDetayScreen from './screens/SevkiyatDetayScreen';
@@ -89,7 +93,6 @@ function FormlarStackScreen() {
       <Stack.Screen name="BullDolumList" component={BullDolumListScreen} />
       <Stack.Screen name="BullDolumDetail" component={BullDolumDetailScreen} />
       <Stack.Screen name="BullDolumForm" component={BullDolumFormScreen} />
-      <Stack.Screen name="VardiyaRapor" component={VardiyaRaporScreen} />
       <Stack.Screen name="VardiyaHammadde" component={VardiyaHammaddeScreen} />
     </Stack.Navigator>
   );
@@ -99,9 +102,12 @@ function FormlarStackScreen() {
 function RaporStackScreen() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="RaporModul" component={RaporModulScreen} />
       <Stack.Screen name="GunlukRaporList" component={GunlukRaporListScreen} />
       <Stack.Screen name="GunlukRaporDetay" component={GunlukRaporDetayScreen} />
       <Stack.Screen name="GunlukRaporForm" component={UretimFormScreen} />
+      <Stack.Screen name="VardiyaRapor" component={VardiyaRaporScreen} />
+      <Stack.Screen name="VardiyaHammadde" component={VardiyaHammaddeScreen} />
     </Stack.Navigator>
   );
 }
@@ -178,10 +184,10 @@ export default function App() {
   // Fabrikaları yükle: ilk mount + login sonrası retry
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => {
-    if (loggedInUser && (error || !selectedFabrika)) {
+    if (loggedInUser && !selectedFabrika && !loading) {
       loadData();
     }
-  }, [error, loadData, loggedInUser, selectedFabrika]);
+  }, [loggedInUser, selectedFabrika, loading, loadData]);
 
   useEffect(() => {
     if (!selectedFabrika) return;
@@ -224,31 +230,35 @@ export default function App() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.splashContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor={Colors.bgWhite} />
-        <View style={styles.splashLogo}>
-          <Image source={require('./assets/onculogo.png')} style={styles.splashLogoImage} resizeMode="contain" />
-        </View>
-        <Text style={styles.splashTitle}>Yeni Çiftlik</Text>
-        <Text style={styles.splashSubtitle}>Üretim Yönetim Sistemi</Text>
-        <ActivityIndicator size="small" color={Colors.brandPrimary} style={{ marginTop: 32 }} />
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.splashContainer}>
+          <StatusBar barStyle="dark-content" backgroundColor={Colors.bgWhite} />
+          <View style={styles.splashLogo}>
+            <Image source={require('./assets/onculogo.png')} style={styles.splashLogoImage} resizeMode="contain" />
+          </View>
+          <Text style={styles.splashTitle}>Yeniçiftlik</Text>
+          <Text style={styles.splashSubtitle}>Üretim Yönetim Sistemi</Text>
+          <ActivityIndicator size="small" color={Colors.brandPrimary} style={{ marginTop: 32 }} />
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
   if (error) {
     return (
-      <SafeAreaView style={styles.errorContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor={Colors.bgWhite} />
-        <View style={styles.errorIconWrap}>
-          <BoltIcon size={28} color={Colors.danger} />
-        </View>
-        <Text style={styles.errorTitle}>Bağlantı Hatası</Text>
-        <Text style={styles.errorMsg}>{error}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={loadData} activeOpacity={0.8}>
-          <Text style={styles.retryBtnText}>Tekrar Dene</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.errorContainer}>
+          <StatusBar barStyle="dark-content" backgroundColor={Colors.bgWhite} />
+          <View style={styles.errorIconWrap}>
+            <BoltIcon size={28} color={Colors.danger} />
+          </View>
+          <Text style={styles.errorTitle}>Bağlantı Hatası</Text>
+          <Text style={styles.errorMsg}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadData} activeOpacity={0.8}>
+            <Text style={styles.retryBtnText}>Tekrar Dene</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
@@ -276,6 +286,7 @@ export default function App() {
               <Stack.Screen name="ArizaForm" component={ArizaFormScreen} />
               <Stack.Screen name="ArizaList" component={ArizaListScreen} />
               <Stack.Screen name="ArizaDetail" component={ArizaDetailScreen} />
+              <Stack.Screen name="FireList" component={FireListScreen} />
               <Stack.Screen name="StokListesi" component={StokListesiScreen} />
               <Stack.Screen name="GunlukUretimlerTab">
                 {() => <GunlukUretimlerTabWrapper />}
@@ -288,6 +299,8 @@ export default function App() {
                 )}
               </Stack.Screen>
 
+              <Stack.Screen name="Siparisler" component={SiparislerScreen} />
+              <Stack.Screen name="SiparisDetay" component={SiparisDetayScreen} />
               <Stack.Screen name="SevkiyatListesi" component={SevkiyatListesiScreen} />
               <Stack.Screen name="SevkiyatDetay" component={SevkiyatDetayScreen} />
               <Stack.Screen name="MusteriProfil" component={MusteriProfilScreen} />
@@ -296,7 +309,7 @@ export default function App() {
             </Stack.Navigator>
           </NavigationContainer>
           </DismissKeyboardView>
-          {Platform.OS === 'android' && showUpdateDialog && (
+          {showUpdateDialog && (
             <UpdateDialog
               updateInfo={updateInfo}
               downloading={downloading}

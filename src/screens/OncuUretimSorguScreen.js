@@ -50,7 +50,7 @@ export default function OncuUretimSorguScreen() {
   const [isStationExpanded, setIsStationExpanded] = useState(true);
   const [isStationManuallyExpanded, setIsStationManuallyExpanded] = useState(false);
 
-  // Load factories and auto-select Yeni Çiftlik
+  // Load factories and auto-select Yeniçiftlik
   useEffect(() => {
     if (!token) return;
     const loadFactory = async () => {

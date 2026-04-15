@@ -1,26 +1,37 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar,
-  ActivityIndicator, RefreshControl, Alert, Dimensions,
+  ActivityIndicator, RefreshControl, Alert, Dimensions, Modal,
+  ScrollView, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import SimpleIcon from '../components/SimpleIcon';
 import { Colors, Shadows } from '../theme';
 import { AppDataContext } from '../context/AppDataContext';
-import { getArizaKayitlari } from '../api/arizaApi';
+import { getArizaKayitlari, resolveArizaKayit } from '../api/arizaApi';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function ArizaListScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { oncuToken } = useContext(AppDataContext);
+  const { oncuToken, loggedInUser } = useContext(AppDataContext);
 
   const [kayitlar, setKayitlar] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [durum, setDurum] = useState(null); // null = all, 'Acik' = open, 'Cozuldu' = closed
+  const [durum, setDurum] = useState(null); // null = all, 'Arizali' = open, 'Cozuldu' = closed
+
+  // Detail modal state
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [detailVisible, setDetailVisible] = useState(false);
+
+  // Resolve modal state
+  const [resolveVisible, setResolveVisible] = useState(false);
+  const [cozumText, setCozumText] = useState('');
+  const [kapanisNotu, setKapanisNotu] = useState('');
+  const [isResolving, setIsResolving] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!oncuToken) return;
@@ -66,13 +77,13 @@ export default function ArizaListScreen({ navigation }) {
   };
 
   const getDurumBadgeColor = (durum) => {
-    if (durum === 'Acik') return '#FBBF24'; // amber
+    if (durum === 'Arizali') return '#FBBF24'; // amber
     if (durum === 'Cozuldu') return Colors.success;
     return Colors.textSecondary;
   };
 
   const getDurumText = (durum) => {
-    if (durum === 'Acik') return 'Açık';
+    if (durum === 'Arizali') return 'Arızalı';
     if (durum === 'Cozuldu') return 'Çözüldü';
     return durum || '-';
   };
@@ -89,46 +100,73 @@ export default function ArizaListScreen({ navigation }) {
     });
   };
 
-  const renderItem = ({ item }) => (
-    <View style={styles.listItem}>
-      <View style={styles.itemContent}>
-        <View style={styles.itemHeader}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.makineKodu}>{item.makineKodu}</Text>
-          </View>
-          <View
-            style={[
-              styles.durumBadge,
-              { backgroundColor: getDurumBadgeColor(item.durum) },
-            ]}>
-            <Text style={styles.durumText}>{getDurumText(item.durum)}</Text>
-          </View>
-        </View>
+  const openDetail = (item) => {
+    setSelectedItem(item);
+    setDetailVisible(true);
+  };
 
-        <Text style={styles.arizaNedeni} numberOfLines={2}>
-          {item.arizaNedeni}
-        </Text>
+  const closeDetail = () => {
+    setDetailVisible(false);
+    setSelectedItem(null);
+  };
 
-        {item.durum === 'Cozuldu' && item.arizaCozumu && (
-          <Text style={styles.arizaCozumu} numberOfLines={2}>
-            Çözüm: {item.arizaCozumu}
-          </Text>
-        )}
+  const openResolve = () => {
+    setCozumText('');
+    setKapanisNotu('');
+    setResolveVisible(true);
+  };
 
-        <View style={styles.itemFooter}>
-          <SimpleIcon name="schedule" size={12} color={Colors.textSecondary} />
-          <Text style={styles.tarih}>
-            {formatDate(item.kayitTarihiSaat)}
-          </Text>
-          {item.acanKullanici && (
-            <Text style={styles.tarih}> | Açan: {item.acanKullanici}</Text>
-          )}
-          {item.durum === 'Cozuldu' && item.cozenKullanici && (
-            <Text style={styles.tarih}> | Çözen: {item.cozenKullanici}</Text>
-          )}
+  const handleResolve = async () => {
+    if (!cozumText.trim()) {
+      Alert.alert('Uyarı', 'Çözüm açıklaması giriniz.');
+      return;
+    }
+    setIsResolving(true);
+    try {
+      await resolveArizaKayit(oncuToken, selectedItem.id, {
+        arizaCozumu: cozumText.trim(),
+        cozenKullanici: loggedInUser?.userName || loggedInUser?.username || '',
+        kapanisNotu: kapanisNotu.trim(),
+      });
+      Alert.alert('Başarılı', 'Arıza kaydı çözüldü.');
+      setResolveVisible(false);
+      closeDetail();
+      loadData();
+    } catch (err) {
+      Alert.alert('Hata', err.message || 'Çözüm kaydedilemedi.');
+    } finally {
+      setIsResolving(false);
+    }
+  };
+
+  const DetailRow = ({ label, value }) => (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value || '-'}</Text>
+    </View>
+  );
+
+  const renderItem = ({ item, index }) => (
+    <TouchableOpacity
+      style={[styles.tableRow, index % 2 === 0 && styles.tableRowEven]}
+      activeOpacity={0.7}
+      onPress={() => openDetail(item)}
+    >
+      <View style={styles.cellMakine}>
+        <Text style={styles.cellMakineCode} numberOfLines={1}>{item.makineKodu}</Text>
+      </View>
+      <View style={styles.cellNeden}>
+        <Text style={styles.cellText} numberOfLines={2}>{item.arizaNedeni}</Text>
+      </View>
+      <View style={styles.cellDurum}>
+        <View style={[styles.durumBadge, { backgroundColor: getDurumBadgeColor(item.durum) }]}>
+          <Text style={styles.durumText}>{getDurumText(item.durum)}</Text>
         </View>
       </View>
-    </View>
+      <View style={styles.cellTarih}>
+        <Text style={styles.cellDateText}>{formatDate(item.kayitTarihiSaat)}</Text>
+      </View>
+    </TouchableOpacity>
   );
 
   const emptyComponent = () => (
@@ -155,7 +193,10 @@ export default function ArizaListScreen({ navigation }) {
           <SimpleIcon name="arrow_back_ios" size={20} color={Colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Arıza Kayıtları</Text>
-        <View style={styles.backBtn} />
+        <TouchableOpacity style={styles.addHeaderBtn} onPress={() => navigation.navigate('ArizaQRScan')} activeOpacity={0.7}>
+          <SimpleIcon name="add" size={18} color="#FFF" />
+          <Text style={styles.addHeaderBtnText}>Yeni</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Filter Tabs */}
@@ -173,14 +214,14 @@ export default function ArizaListScreen({ navigation }) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.filterTab, durum === 'Acik' && styles.filterTabActive]}
-          onPress={() => setDurum('Acik')}>
+          style={[styles.filterTab, durum === 'Arizali' && styles.filterTabActive]}
+          onPress={() => setDurum('Arizali')}>
           <View style={styles.filterTabBadge}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FBBF24' }} />
             <Text
               style={[
                 styles.filterTabText,
-                durum === 'Acik' && styles.filterTabTextActive,
+                durum === 'Arizali' && styles.filterTabTextActive,
               ]}>
               Açık
             </Text>
@@ -219,24 +260,135 @@ export default function ArizaListScreen({ navigation }) {
           </TouchableOpacity>
         </View>
       ) : (
-        <FlatList
-          data={filteredKayitlar}
-          renderItem={renderItem}
-          keyExtractor={(item, idx) => `${item.id}-${idx}`}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={emptyComponent}
-          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />}
-          scrollEnabled={filteredKayitlar.length > 0}
-        />
+        <>
+          {/* Table Header */}
+          {filteredKayitlar.length > 0 && (
+            <View style={styles.tableHeader}>
+              <View style={styles.cellMakine}><Text style={styles.thText}>Makine</Text></View>
+              <View style={styles.cellNeden}><Text style={styles.thText}>Arıza Nedeni</Text></View>
+              <View style={styles.cellDurum}><Text style={styles.thText}>Durum</Text></View>
+              <View style={styles.cellTarih}><Text style={styles.thText}>Tarih</Text></View>
+            </View>
+          )}
+          <FlatList
+            data={filteredKayitlar}
+            renderItem={renderItem}
+            keyExtractor={(item, idx) => `${item.id}-${idx}`}
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={emptyComponent}
+            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />}
+            scrollEnabled={filteredKayitlar.length > 0}
+          />
+        </>
       )}
 
-      {/* FAB - New record */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => navigation.navigate('ArizaQRScan')}
-        activeOpacity={0.7}>
-        <SimpleIcon name="add" size={24} color="#FFF" />
-      </TouchableOpacity>
+      {/* Detail Modal */}
+      <Modal
+        visible={detailVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={closeDetail}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Arıza Detayı</Text>
+              <TouchableOpacity onPress={closeDetail} style={styles.modalCloseBtn}>
+                <SimpleIcon name="close" size={22} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedItem && (
+              <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                <DetailRow label="MAKİNE KODU" value={selectedItem.makineKodu} />
+                <DetailRow label="ARIZA NEDENİ / ÇÖZÜMÜ" value={selectedItem.arizaNedeni} />
+                {selectedItem.durum === 'Cozuldu' && selectedItem.arizaCozumu && (
+                  <DetailRow label="ÇÖZÜM" value={selectedItem.arizaCozumu} />
+                )}
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>DURUM</Text>
+                  <View style={[styles.durumBadge, { backgroundColor: getDurumBadgeColor(selectedItem.durum) }]}>
+                    <Text style={styles.durumText}>{getDurumText(selectedItem.durum)}</Text>
+                  </View>
+                </View>
+                <DetailRow label="KAYIT TARİHİ - SAAT" value={formatDate(selectedItem.kayitTarihiSaat)} />
+                <DetailRow label="ÇÖZÜM TARİHİ - SAAT" value={formatDate(selectedItem.cozumTarihiSaat)} />
+                <DetailRow label="DURUŞ (DK)" value={selectedItem.durusDk != null ? String(selectedItem.durusDk) : '-'} />
+                <DetailRow label="AÇAN" value={selectedItem.acanKullanici} />
+                <DetailRow label="ÇÖZEN" value={selectedItem.cozenKullanici} />
+                <DetailRow label="KAPANIŞ NOTU" value={selectedItem.kapanisNotu} />
+
+                {selectedItem.durum === 'Arizali' && (
+                  <TouchableOpacity style={styles.resolveBtn} onPress={openResolve} activeOpacity={0.7}>
+                    <SimpleIcon name="check_circle" size={18} color="#FFF" />
+                    <Text style={styles.resolveBtnText}>Çöz</Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={{ height: 40 }} />
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Resolve Modal */}
+      <Modal
+        visible={resolveVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setResolveVisible(false)}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.resolveModalContainer}>
+            <Text style={styles.resolveModalTitle}>Arızayı Çöz</Text>
+            <Text style={styles.resolveModalSubtitle}>
+              {selectedItem?.makineKodu} - {selectedItem?.arizaNedeni}
+            </Text>
+
+            <Text style={styles.inputLabel}>Çözüm Açıklaması *</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Çözüm açıklamasını giriniz..."
+              placeholderTextColor={Colors.textSecondary}
+              value={cozumText}
+              onChangeText={setCozumText}
+              multiline
+              numberOfLines={3}
+            />
+
+            <Text style={styles.inputLabel}>Kapanış Notu</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Kapanış notu (opsiyonel)..."
+              placeholderTextColor={Colors.textSecondary}
+              value={kapanisNotu}
+              onChangeText={setKapanisNotu}
+              multiline
+              numberOfLines={2}
+            />
+
+            <View style={styles.resolveModalButtons}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setResolveVisible(false)}>
+                <Text style={styles.cancelBtnText}>İptal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmBtn, isResolving && { opacity: 0.6 }]}
+                onPress={handleResolve}
+                disabled={isResolving}>
+                {isResolving ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={styles.confirmBtnText}>Çöz</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -255,6 +407,12 @@ const styles = StyleSheet.create({
   },
   backBtn: { padding: 4, width: 40 },
   headerTitle: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary },
+  addHeaderBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: Colors.brandPrimary,
+  },
+  addHeaderBtnText: { fontSize: 13, fontWeight: '600', color: '#FFF' },
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: 8,
@@ -286,31 +444,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  listContent: { padding: 12, gap: 10 },
-  listItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: Colors.bgWhite,
-    borderRadius: 12,
-    ...Shadows.sm,
+  // Table
+  tableHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 10,
+    backgroundColor: Colors.bgSurface,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderColor,
   },
-  itemContent: { flex: 1, gap: 6 },
-  itemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  makineKodu: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary, flex: 1 },
+  thText: { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  tableRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
+    backgroundColor: Colors.bgWhite,
+    minHeight: 52,
+  },
+  tableRowEven: { backgroundColor: '#FAFBFC' },
+  cellMakine: { flex: 2, paddingRight: 8 },
+  cellMakineCode: { fontSize: 12, fontWeight: '700', color: Colors.textPrimary },
+  cellNeden: { flex: 3, paddingRight: 8 },
+  cellText: { fontSize: 12, color: Colors.textSecondary, lineHeight: 16 },
+  cellDurum: { flex: 1.5, alignItems: 'center' },
+  cellTarih: { flex: 2, alignItems: 'flex-end' },
+  cellDateText: { fontSize: 10, color: Colors.textSecondary },
+  listContent: { paddingBottom: 40 },
   durumBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
     borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  durumText: { fontSize: 10, fontWeight: '600', color: '#000' },
-  arizaNedeni: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
-  cozumLabel: { fontWeight: '600', color: Colors.success },
-  arizaCozumu: { fontSize: 12, color: Colors.success, lineHeight: 16 },
-  itemFooter: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  tarih: { fontSize: 11, color: Colors.textSecondary },
+  durumText: { fontSize: 9, fontWeight: '600', color: '#000' },
   emptyContainer: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary, marginTop: 16, marginBottom: 8 },
   emptyText: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', maxWidth: SCREEN_WIDTH - 64 },
@@ -323,16 +488,109 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   retryButtonText: { fontSize: 12, fontWeight: '600', color: '#FFF' },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.brandPrimary,
+  // Detail Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    ...Shadows.md,
   },
+  modalContainer: {
+    backgroundColor: Colors.bgWhite,
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 440,
+    maxHeight: '85%',
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary },
+  modalCloseBtn: { padding: 4 },
+  modalBody: { marginTop: 12 },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.borderLight,
+  },
+  detailLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    flex: 0.4,
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.textPrimary,
+    flex: 0.6,
+    textAlign: 'right',
+  },
+  resolveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 24,
+    paddingVertical: 14,
+    backgroundColor: Colors.brandPrimary,
+    borderRadius: 10,
+  },
+  resolveBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  // Resolve Modal
+  resolveModalContainer: {
+    backgroundColor: Colors.bgWhite,
+    marginHorizontal: 20,
+    borderRadius: 16,
+    padding: 20,
+    alignSelf: 'center',
+    width: SCREEN_WIDTH - 40,
+    marginTop: 'auto',
+    marginBottom: 'auto',
+  },
+  resolveModalTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
+  resolveModalSubtitle: { fontSize: 13, color: Colors.textSecondary, marginBottom: 20 },
+  inputLabel: { fontSize: 12, fontWeight: '600', color: Colors.textPrimary, marginBottom: 6 },
+  textInput: {
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.bgSurface,
+    marginBottom: 16,
+    textAlignVertical: 'top',
+    minHeight: 60,
+  },
+  resolveModalButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    alignItems: 'center',
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: Colors.brandPrimary,
+    alignItems: 'center',
+  },
+  confirmBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
 });

@@ -8,12 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SimpleIcon from '../components/SimpleIcon';
 import { Colors } from '../theme';
 import { AppDataContext } from '../context/AppDataContext';
-import { getSevkiyatDetay } from '../api/oncuApi';
+import { getSevkiyatDetay, getSevkiyatKalemler } from '../api/oncuApi';
 
 const HIDDEN_FIELDS = new Set(['lineRef', 'lineref', 'LineRef', 'line_ref']);
 const PER_ITEM_KEYS = new Set([
   'stokKodu', 'stokAdi', 'miktar', 'birim', 'birimKodu', 'birimFiyat', 'tutar',
-  'kalanMiktar', 'lotNo', 'parti', 'aciklama',
+  'kalanMiktar', 'lotNo', 'parti', 'aciklama', 'siparisMiktar',
 ]);
 
 export default function SevkiyatDetayScreen() {
@@ -22,12 +22,13 @@ export default function SevkiyatDetayScreen() {
   const insets = useSafeAreaInsets();
   const { oncuToken } = useContext(AppDataContext);
 
-  const { irsaliyeNo, musteriAdi } = route.params || {};
+  const { irsaliyeNo, musteriAdi, siparisNo } = route.params || {};
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
+  const [headerInfo, setHeaderInfo] = useState(null);
   const [rawResponse, setRawResponse] = useState(null);
 
   const accent = '#E11D48';
@@ -41,17 +42,37 @@ export default function SevkiyatDetayScreen() {
     else setLoading(true);
     setError(null);
     try {
-      const res = await getSevkiyatDetay(oncuToken, irsaliyeNo);
-      if (Array.isArray(res)) {
-        setItems(res); setRawResponse(null);
-      } else if (res && typeof res === 'object') {
-        const possibleArr = res.items || res.data || res.detaylar || res.result;
-        if (Array.isArray(possibleArr)) { setItems(possibleArr); setRawResponse(null); }
-        else { setItems([]); setRawResponse(res); }
+      // 1) Header bilgileri (cari, adres, telefon) - 5050 API
+      // Önce IC dene, sonuç yoksa DIS dene
+      let headerRes = await getSevkiyatDetay(oncuToken, irsaliyeNo, 'IC');
+      if (!headerRes || headerRes.length === 0) {
+        headerRes = await getSevkiyatDetay(oncuToken, irsaliyeNo, 'DIS');
       }
+      if (headerRes && headerRes.length > 0) {
+        setHeaderInfo(headerRes[0]);
+      }
+
+      // 2) Kalemler - siparis-cikislar'dan eşleşen irsaliyenin kalemlerini al
+      let kalemler = [];
+      if (siparisNo) {
+        const cikislar = await getSevkiyatKalemler(oncuToken, siparisNo);
+        // Bu sipariş için tüm çıkışlar gelir, irsaliyeNo'ya göre filtrele
+        const matched = cikislar.find(c => c.cikisFisNo === irsaliyeNo);
+        if (matched && matched.kalemler) {
+          kalemler = matched.kalemler.map(k => ({
+            stokKodu: k.urunKodu,
+            stokAdi: k.urunAdi,
+            birim: k.birimKodu,
+            miktar: k.cikisMiktar,
+            siparisMiktar: k.siparisMiktar,
+            kalanMiktar: k.kalanMiktar,
+          }));
+        }
+      }
+      setItems(kalemler);
     } catch (e) { setError(e.message || 'Detay yüklenirken hata oluştu'); }
     finally { setLoading(false); setRefreshing(false); }
-  }, [oncuToken, irsaliyeNo]);
+  }, [oncuToken, irsaliyeNo, siparisNo]);
 
   useEffect(() => { loadDetay(); }, [loadDetay]);
 
@@ -108,32 +129,72 @@ export default function SevkiyatDetayScreen() {
     return map[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
   };
 
-  const renderHeaderCard = () => (
-    <View style={[st.headerCard, { backgroundColor: Colors.bgWhite, borderColor: Colors.borderLight }]}>
-      <View style={st.headerRow1}>
-        <View style={[st.irsaliyeBadge, { backgroundColor: 'rgba(225,29,72,0.06)' }]}>
-          <SimpleIcon name="receipt_long" size={16} color={accent} />
-          <Text style={[st.irsaliyeTxt, { color: accent }]}>{irsaliyeNo}</Text>
+  const renderHeaderCard = () => {
+    const cari = headerInfo?.cari || musteriAdi;
+    const tarih = headerInfo?.fisTarihi;
+    const adres = [headerInfo?.sevkiyatAdresi, headerInfo?.sevkiyatAdresi2].filter(Boolean).join(', ');
+    const sehir = [headerInfo?.sehir, headerInfo?.ulke].filter(Boolean).join(', ');
+    const tel1 = headerInfo?.telno1;
+    const tel2 = headerInfo?.telno2;
+    const email = headerInfo?.email;
+
+    return (
+      <View style={[st.headerCard, { backgroundColor: Colors.bgWhite, borderColor: Colors.borderLight }]}>
+        <View style={st.headerRow1}>
+          <View style={[st.irsaliyeBadge, { backgroundColor: 'rgba(225,29,72,0.06)' }]}>
+            <SimpleIcon name="receipt_long" size={16} color={accent} />
+            <Text style={[st.irsaliyeTxt, { color: accent }]}>{irsaliyeNo}</Text>
+          </View>
         </View>
+        {cari ? (
+          <View style={st.headerRow2}>
+            <SimpleIcon name="storefront" size={18} color={Colors.textSecondary} />
+            <Text style={[st.musteriTxt, { color: Colors.textPrimary }]}>{cari.trim()}</Text>
+          </View>
+        ) : null}
+        {(tarih || adres || sehir || tel1 || tel2 || email) && (
+          <View style={[st.commonSection, { borderTopColor: Colors.borderLight }]}>
+            {tarih ? (
+              <View style={st.commonRow}>
+                <Text style={[st.commonKey, { color: Colors.textSecondary }]}>Tarih</Text>
+                <Text style={[st.commonVal, { color: Colors.textPrimary }]}>{formatValue('tarih', tarih)}</Text>
+              </View>
+            ) : null}
+            {adres ? (
+              <View style={st.commonRow}>
+                <Text style={[st.commonKey, { color: Colors.textSecondary }]}>Sevk Adresi</Text>
+                <Text style={[st.commonVal, { color: Colors.textPrimary }]}>{adres}</Text>
+              </View>
+            ) : null}
+            {sehir ? (
+              <View style={st.commonRow}>
+                <Text style={[st.commonKey, { color: Colors.textSecondary }]}>Şehir / Ülke</Text>
+                <Text style={[st.commonVal, { color: Colors.textPrimary }]}>{sehir}</Text>
+              </View>
+            ) : null}
+            {tel1 ? (
+              <View style={st.commonRow}>
+                <Text style={[st.commonKey, { color: Colors.textSecondary }]}>Telefon</Text>
+                <Text style={[st.commonVal, { color: Colors.textPrimary }]}>{tel1}</Text>
+              </View>
+            ) : null}
+            {tel2 ? (
+              <View style={st.commonRow}>
+                <Text style={[st.commonKey, { color: Colors.textSecondary }]}>Telefon 2</Text>
+                <Text style={[st.commonVal, { color: Colors.textPrimary }]}>{tel2}</Text>
+              </View>
+            ) : null}
+            {email ? (
+              <View style={st.commonRow}>
+                <Text style={[st.commonKey, { color: Colors.textSecondary }]}>E-posta</Text>
+                <Text style={[st.commonVal, { color: Colors.textPrimary }]}>{email}</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
       </View>
-      {musteriAdi ? (
-        <View style={st.headerRow2}>
-          <SimpleIcon name="storefront" size={18} color={Colors.textSecondary} />
-          <Text style={[st.musteriTxt, { color: Colors.textPrimary }]}>{musteriAdi}</Text>
-        </View>
-      ) : null}
-      {commonFields.length > 0 && (
-        <View style={[st.commonSection, { borderTopColor: Colors.borderLight }]}>
-          {commonFields.map(f => (
-            <View key={f.key} style={st.commonRow}>
-              <Text style={[st.commonKey, { color: Colors.textSecondary }]}>{humanizeKey(f.key)}</Text>
-              <Text style={[st.commonVal, { color: Colors.textPrimary }]}>{formatValue(f.key, f.value)}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
-  );
+    );
+  };
 
   const renderStats = () => (
     <View style={[st.statsRow, { borderBottomColor: Colors.borderLight }]}>
@@ -196,20 +257,20 @@ export default function SevkiyatDetayScreen() {
         <View style={st.metricRow}>
           {item.miktar != null && (
             <View style={[st.metricBox, { backgroundColor: 'rgba(5,150,105,0.08)' }]}>
-              <Text style={[st.metricLabel, { color: emerald }]}>Miktar</Text>
+              <Text style={[st.metricLabel, { color: emerald }]}>Çıkış Mik.</Text>
               <Text style={[st.metricValue, { color: emerald }]}>{fmt(item.miktar)}{item.birim ? ` ${item.birim}` : ''}</Text>
             </View>
           )}
-          {item.birimFiyat != null && (
+          {item.siparisMiktar != null && (
             <View style={[st.metricBox, { backgroundColor: Colors.bgApp }]}>
-              <Text style={[st.metricLabel, { color: Colors.textSecondary }]}>Birim Fiyat</Text>
-              <Text style={[st.metricValue, { color: Colors.textPrimary }]}>₺{fmt(item.birimFiyat)}</Text>
+              <Text style={[st.metricLabel, { color: Colors.textSecondary }]}>Sipariş Mik.</Text>
+              <Text style={[st.metricValue, { color: Colors.textPrimary }]}>{fmt(item.siparisMiktar)}</Text>
             </View>
           )}
-          {item.tutar != null && (
-            <View style={[st.metricBox, { backgroundColor: 'rgba(37,99,235,0.06)' }]}>
-              <Text style={[st.metricLabel, { color: blue }]}>Tutar</Text>
-              <Text style={[st.metricValue, { color: blue }]}>₺{fmt(item.tutar)}</Text>
+          {item.kalanMiktar != null && item.kalanMiktar > 0 && (
+            <View style={[st.metricBox, { backgroundColor: 'rgba(217,119,6,0.08)' }]}>
+              <Text style={[st.metricLabel, { color: amber }]}>Kalan</Text>
+              <Text style={[st.metricValue, { color: amber }]}>{fmt(item.kalanMiktar)}</Text>
             </View>
           )}
         </View>

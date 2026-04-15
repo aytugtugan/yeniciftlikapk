@@ -21,8 +21,9 @@ import SimpleIcon from '../components/SimpleIcon';
 import { FORM_DEFINITIONS } from '../api/formsApi';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { VARDIYA_OPTIONS, VARDIYA_DEFS, getVardiyaSaat, getCurrentVardiya } from '../utils/vardiya';
+import { toLocalDateStr, todayStr } from '../utils/dateUtils';
 
-const today = () => new Date().toISOString().split('T')[0];
+const today = () => todayStr();
 const nowTime = () => {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00`;
@@ -35,10 +36,12 @@ const formatTR = (dateStr) => {
   return `${parseInt(d)} ${TR_MONTHS[parseInt(m) - 1]} ${y}`;
 };
 
-function VardiyaSelector({ value }) {
+function VardiyaSelector({ value, editable, onPress }) {
   const def = value ? VARDIYA_DEFS[value] : null;
+  const Wrapper = editable ? TouchableOpacity : View;
+  const wrapperProps = editable ? { activeOpacity: 0.7, onPress } : {};
   return (
-    <View style={[styles.vardiyaBanner, def && { borderColor: def.color, backgroundColor: def.bgColor }]}>
+    <Wrapper {...wrapperProps} style={[styles.vardiyaBanner, def && { borderColor: def.color, backgroundColor: def.bgColor }]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={[styles.vardiyaBadge, def && { backgroundColor: def.color }]}>
           <Text style={styles.vardiyaBadgeText}>{value || '?'}</Text>
@@ -53,9 +56,9 @@ function VardiyaSelector({ value }) {
         </View>
       </View>
       <View style={{ backgroundColor: 'rgba(255,255,255,0.7)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 }}>
-        <Text style={{ fontSize: 9, fontWeight: '700', color: def?.color || Colors.textTertiary }}>OTOMATİK</Text>
+        <Text style={{ fontSize: 9, fontWeight: '700', color: def?.color || Colors.textTertiary }}>{editable ? 'DEĞİŞTİR' : 'OTOMATİK'}</Text>
       </View>
-    </View>
+    </Wrapper>
   );
 }
 
@@ -96,14 +99,14 @@ function UygunlukSelector({ value, onChange, formColor }) {
   );
 }
 
-function FormField({ field, value, onChange, onDatePress, onTimePress, formColor }) {
+function FormField({ field, value, onChange, onDatePress, onTimePress, onVardiyaPress, formColor, pastDateMode }) {
   if (field.type === 'vardiya') {
     return (
       <View style={styles.fieldWrap}>
         <Text style={styles.fieldLabelUpper}>
-          {field.label.toUpperCase()}{field.required ? '' : ''} <Text style={{fontSize: 10, color: Colors.textTertiary}}>(OTOMATİK)</Text>
+          {field.label.toUpperCase()}{field.required ? '' : ''} <Text style={{fontSize: 10, color: Colors.textTertiary}}>{pastDateMode ? '(MANUEL)' : '(OTOMATİK)'}</Text>
         </Text>
-        <VardiyaSelector value={value || ''} />
+        <VardiyaSelector value={value || ''} editable={pastDateMode} onPress={() => onVardiyaPress && onVardiyaPress(field.key, value)} />
       </View>
     );
   }
@@ -123,11 +126,15 @@ function FormField({ field, value, onChange, onDatePress, onTimePress, formColor
         <Text style={styles.fieldLabelUpper}>
           {field.label.toUpperCase()}{field.required ? ' *' : ''}
         </Text>
-        <View style={[styles.input, styles.inputDisabled]}>
+        <TouchableOpacity
+          style={[styles.input, !pastDateMode && styles.inputDisabled]}
+          activeOpacity={pastDateMode ? 0.7 : 1}
+          onPress={() => pastDateMode && onDatePress && onDatePress(field.key, value)}
+        >
           <Text style={value ? styles.inputText : styles.placeholderText}>
             {value ? formatTR(value) : 'Tarih seçin'}
           </Text>
-        </View>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -136,11 +143,15 @@ function FormField({ field, value, onChange, onDatePress, onTimePress, formColor
     return (
       <View style={styles.fieldWrap}>
         <Text style={styles.fieldLabelUpper}>{field.label.toUpperCase()}</Text>
-        <View style={[styles.input, styles.inputDisabled]}>
+        <TouchableOpacity
+          style={[styles.input, !pastDateMode && styles.inputDisabled]}
+          activeOpacity={pastDateMode ? 0.7 : 1}
+          onPress={() => pastDateMode && onTimePress && onTimePress(field.key, value)}
+        >
           <Text style={value ? styles.inputText : styles.placeholderText}>
             {value || 'HH:mm:ss'}
           </Text>
-        </View>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -206,72 +217,79 @@ function SectionTabBar({ sections, activeTab, onChangeTab, formColor }) {
   );
 }
 
-function EntryCard({ entry, fields, formDef, onDelete, onEdit, readOnly }) {
+function EntryCard({ entry, fields, formDef, onDelete, onEdit, readOnly, index }) {
   const [expanded, setExpanded] = useState(false);
   const filledFields = fields.filter(f => {
     const val = entry[f.key];
     return val !== null && val !== undefined && val !== '';
   });
-  const visibleFields = expanded ? filledFields : filledFields.slice(0, 4);
-  const hasMore = filledFields.length > 4;
+  const col1 = filledFields[0];
+  const col2 = filledFields[1];
+  const remainingFields = filledFields.slice(2);
 
   return (
     <TouchableOpacity
-      style={styles.entryCard}
       activeOpacity={0.7}
       onPress={() => setExpanded(!expanded)}
+      style={[styles.tableRow, index % 2 === 0 && styles.tableRowEven, expanded && styles.tableRowExpanded]}
     >
-      <View style={styles.entryHeader}>
-        <View style={[styles.entryIdBadge, { backgroundColor: formDef.bgColor }]}>
-          <Text style={[styles.entryIdText, { color: formDef.color }]}>#{entry.id}</Text>
+      <View style={styles.tableRowMain}>
+        <View style={styles.cellId}>
+          <Text style={[styles.cellIdText, { color: formDef.color }]}>#{entry.id}</Text>
+          {entry.vardiya ? <Text style={styles.cellVardiya}>{entry.vardiya}</Text> : null}
         </View>
-        {entry.vardiya && (
-          <View style={styles.vardiyaBadge}>
-            <Text style={styles.vardiyaBadgeText}>{entry.vardiya}</Text>
-          </View>
-        )}
-        {!readOnly && (
-          <>
-            <TouchableOpacity
-              style={styles.editBtn}
-              onPress={() => onEdit(entry)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <View><SimpleIcon name="edit" size={16} color={Colors.brandPrimary} /></View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.deleteBtn}
-              onPress={() => {
-                Alert.alert('Sil', `#${entry.id} kaydını silmek istediğinize emin misiniz?`, [
-                  { text: 'İptal', style: 'cancel' },
-                  { text: 'Sil', style: 'destructive', onPress: () => onDelete(entry.id) },
-                ]);
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <View><SimpleIcon name="close" size={16} color={Colors.danger} /></View>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-      <View style={styles.entryBody}>
-        {visibleFields.map(f => (
-          <View key={f.key} style={styles.entryField}>
-            <Text style={styles.entryFieldLabel}>{f.label}</Text>
-            <Text style={styles.entryFieldValue}>{String(entry[f.key])}</Text>
-          </View>
-        ))}
-      </View>
-      {hasMore && (
-        <View style={styles.expandRow}>
-          <Text style={[styles.expandText, { color: formDef.color }]}>
-            {expanded ? (<View style={{flexDirection:'row',alignItems:'center',gap:4}}><SimpleIcon name="expand-less" size={14} color={formDef.color} /><Text style={{color:formDef.color,fontSize:13,fontWeight:'600'}}>Daralt</Text></View>) : (<View style={{flexDirection:'row',alignItems:'center',gap:4}}><Text style={{color:formDef.color,fontSize:13,fontWeight:'600'}}>Tümünü Göster ({filledFields.length} alan)</Text><SimpleIcon name="expand-more" size={14} color={formDef.color} /></View>)}
-          </Text>
+        <View style={styles.cellField1}>
+          {col1 ? (
+            <>
+              <Text style={styles.cellLabel}>{col1.label}</Text>
+              <Text style={styles.cellValue} numberOfLines={1}>{String(entry[col1.key])}</Text>
+            </>
+          ) : <Text style={styles.cellValue}>-</Text>}
         </View>
-      )}
-      {entry.tarih && (
-        <View style={styles.entryFooter}>
-          <Text style={styles.entryDate}>{formatTR(entry.tarih.split('T')[0])}{entry.saat ? ` ${entry.saat}` : ''}</Text>
+        <View style={styles.cellField2}>
+          {col2 ? (
+            <>
+              <Text style={styles.cellLabel}>{col2.label}</Text>
+              <Text style={styles.cellValue} numberOfLines={1}>{String(entry[col2.key])}</Text>
+            </>
+          ) : <Text style={styles.cellValue}>-</Text>}
+        </View>
+        <View style={styles.cellActions}>
+          {entry.tarih && <Text style={styles.cellDateText}>{formatTR(entry.tarih.split('T')[0])}</Text>}
+          <View style={styles.actionRow}>
+            {!readOnly && (
+              <>
+                <TouchableOpacity onPress={() => onEdit(entry)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <SimpleIcon name="edit" size={14} color={Colors.brandPrimary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    Alert.alert('Sil', `#${entry.id} kaydını silmek istediğinize emin misiniz?`, [
+                      { text: 'İptal', style: 'cancel' },
+                      { text: 'Sil', style: 'destructive', onPress: () => onDelete(entry.id) },
+                    ]);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <SimpleIcon name="close" size={14} color={Colors.danger} />
+                </TouchableOpacity>
+              </>
+            )}
+            {remainingFields.length > 0 && (
+              <SimpleIcon name={expanded ? 'expand-less' : 'expand-more'} size={16} color={Colors.textTertiary} />
+            )}
+          </View>
+        </View>
+      </View>
+
+      {expanded && remainingFields.length > 0 && (
+        <View style={styles.expandedBody}>
+          {remainingFields.map((f, i) => (
+            <View key={f.key} style={styles.expandedField}>
+              <Text style={styles.expandedFieldLabel}>{f.label}</Text>
+              <Text style={styles.expandedFieldValue}>{String(entry[f.key])}</Text>
+            </View>
+          ))}
         </View>
       )}
     </TouchableOpacity>
@@ -311,6 +329,11 @@ export default function FormDetailScreen({ route }) {
 
   // Depo Sevk type filter: tumu | dolum | kolileme
   const [depoSevkFilter, setDepoSevkFilter] = useState('tumu');
+  // Vardiya filter for depoSevk
+  const [vardiyaFilter, setVardiyaFilter] = useState('tumu');
+  // Past date mode
+  const [pastDateMode, setPastDateMode] = useState(false);
+  const [showVardiyaPicker, setShowVardiyaPicker] = useState(false);
 
   const initFormData = useCallback(() => {
     const data = {};
@@ -336,7 +359,7 @@ export default function FormDetailScreen({ route }) {
       const d = new Date(start);
       d.setDate(d.getDate() + 1);
       while (d <= end) {
-        const dateStr = d.toISOString().split('T')[0];
+        const dateStr = toLocalDateStr(d);
         extraPromises.push(formDef.listFn({ [dateParam]: dateStr }).catch(() => []));
         d.setDate(d.getDate() + 1);
       }
@@ -401,15 +424,23 @@ export default function FormDetailScreen({ route }) {
     loadEntries().finally(() => setRefreshing(false));
   }, [loadEntries]);
 
-  // Client-side filter for depoSevk: Dolum vs Kolileme by makinaKodu
+  // Client-side filter for depoSevk: Dolum vs Kolileme by makinaKodu + vardiya
   const filteredEntries = useMemo(() => {
-    if (formKey !== 'depoSevk' || depoSevkFilter === 'tumu') return entries;
-    return entries.filter(e => {
-      const mk = (e.makinaKodu || e.MakinaKodu || '').toString().toUpperCase();
-      if (depoSevkFilter === 'kolileme') return mk.startsWith('YCKL');
-      return !mk.startsWith('YCKL'); // dolum (includes empty, YCD1, etc.)
-    });
-  }, [entries, depoSevkFilter, formKey]);
+    let result = entries;
+    if (formKey === 'depoSevk') {
+      if (depoSevkFilter !== 'tumu') {
+        result = result.filter(e => {
+          const mk = (e.makinaKodu || e.MakinaKodu || '').toString().toUpperCase();
+          if (depoSevkFilter === 'kolileme') return mk.startsWith('YCKL');
+          return !mk.startsWith('YCKL');
+        });
+      }
+      if (vardiyaFilter !== 'tumu') {
+        result = result.filter(e => (e.vardiya || '').toUpperCase() === vardiyaFilter);
+      }
+    }
+    return result;
+  }, [entries, depoSevkFilter, vardiyaFilter, formKey]);
 
   const handleSave = async () => {
     // Validate required fields
@@ -518,7 +549,17 @@ export default function FormDetailScreen({ route }) {
         </View>
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: formDef.color }, isReadOnly && { display: 'none' }]}
-          onPress={() => { initFormData(); setEditingId(null); setActiveTab(0); setShowForm(true); }}
+          onPress={() => {
+            try {
+              initFormData();
+              setEditingId(null);
+              setActiveTab(0);
+              setShowForm(true);
+            } catch (e) {
+              Alert.alert('Hata', 'Form açılırken bir hata oluştu: ' + (e.message || String(e)));
+              console.error('Form açılırken hata:', e);
+            }
+          }}
           activeOpacity={0.8}
         >
           <Text style={styles.addBtnText}>+ Yeni</Text>
@@ -580,6 +621,25 @@ export default function FormDetailScreen({ route }) {
         </View>
       )}
 
+      {/* Depo Sevk vardiya filter */}
+      {formKey === 'depoSevk' && (
+        <View style={styles.segmentBar}>
+          {[{ key: 'tumu', label: 'Tüm Vardiya' }, { key: 'A', label: 'A', color: '#2563EB' }, { key: 'B', label: 'B', color: '#D97706' }, { key: 'C', label: 'C', color: '#7C3AED' }].map(opt => {
+            const active = vardiyaFilter === opt.key;
+            return (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.segmentBtn, active && { backgroundColor: opt.color || formDef.color }]}
+                onPress={() => setVardiyaFilter(opt.key)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.segmentBtnText, active && { color: '#fff' }]}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
       {/* Filter date picker popup */}
       {showFilterPicker && Platform.OS === 'android' && (
         <DateTimePicker
@@ -591,7 +651,7 @@ export default function FormDetailScreen({ route }) {
               setShowFilterPicker(null);
               return;
             }
-            const sel = date.toISOString().split('T')[0];
+            const sel = toLocalDateStr(date);
             if (showFilterPicker === 'start') {
               setFilterStartDate(sel);
               if (sel > filterEndDate) setFilterEndDate(sel);
@@ -629,7 +689,7 @@ export default function FormDetailScreen({ route }) {
               <TouchableOpacity
                 style={[styles.datePickerConfirm, { backgroundColor: formDef.color }]}
                 onPress={() => {
-                  const sel = pendingFilterDate.toISOString().split('T')[0];
+                  const sel = toLocalDateStr(pendingFilterDate);
                   if (showFilterPicker === 'start') {
                     setFilterStartDate(sel);
                     if (sel > filterEndDate) setFilterEndDate(sel);
@@ -666,43 +726,85 @@ export default function FormDetailScreen({ route }) {
           {!isReadOnly && <Text style={styles.emptySubtext}>Yeni kayıt eklemek için "+ Yeni" butonuna basın</Text>}
         </View>
       ) : (
-        <FlatList
-          data={filteredEntries}
-          keyExtractor={(item, idx) => String(item.id ?? idx)}
-          renderItem={({ item }) => (
-            <EntryCard
-              entry={item}
-              fields={formDef.fields}
-              formDef={formDef}
-              onDelete={handleDelete}
-              onEdit={handleEdit}
-              readOnly={isReadOnly}
-            />
-          )}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          initialNumToRender={15}
-          maxToRenderPerBatch={10}
-          windowSize={5}
-          removeClippedSubviews={Platform.OS === 'android'}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={formDef.color} />}
-        />
+        <>
+          {/* Table Header */}
+          <View style={styles.tableHeader}>
+            <View style={styles.cellId}><Text style={styles.thText}>ID</Text></View>
+            <View style={styles.cellField1}><Text style={styles.thText}>Alan 1</Text></View>
+            <View style={styles.cellField2}><Text style={styles.thText}>Alan 2</Text></View>
+            <View style={styles.cellActions}><Text style={styles.thText}>Tarih</Text></View>
+          </View>
+          <FlatList
+            data={filteredEntries}
+            keyExtractor={(item, idx) => String(item.id ?? idx)}
+            renderItem={({ item, index }) => (
+              <EntryCard
+                entry={item}
+                fields={formDef.fields}
+                formDef={formDef}
+                onDelete={handleDelete}
+                onEdit={handleEdit}
+                readOnly={isReadOnly}
+                index={index}
+              />
+            )}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            initialNumToRender={15}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={Platform.OS === 'android'}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={formDef.color} />}
+          />
+        </>
       )}
 
       {/* New Entry Modal */}
-      <Modal visible={showForm} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
+      <Modal visible={showForm} animationType="slide" transparent={false}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bgWhite }}>
+              <View style={styles.modalHeader}>
             <View style={styles.modalHeaderTop}>
               <Text style={styles.modalTitle}>{editingId ? 'Düzenle' : 'Yeni Kayıt'}</Text>
               <TouchableOpacity
                 style={styles.modalCloseBtn}
-                onPress={() => { setShowForm(false); setEditingId(null); setActiveTab(0); setShowFormTimePicker(false); setShowFormDatePicker(false); }}
+                onPress={() => { setShowForm(false); setEditingId(null); setActiveTab(0); setShowFormTimePicker(false); setShowFormDatePicker(false); setPastDateMode(false); }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Text style={styles.modalCloseBtnText}>✕</Text>
               </TouchableOpacity>
             </View>
+            {/* Past date toggle */}
+            {!editingId && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}
+                onPress={() => {
+                  const next = !pastDateMode;
+                  setPastDateMode(next);
+                  if (!next) {
+                    // Reset to auto values
+                    const currentV = getCurrentVardiya();
+                    const currentSaat = getVardiyaSaat(currentV);
+                    setFormData(prev => {
+                      const updated = { ...prev };
+                      formDef.fields.forEach(f => {
+                        if (f.type === 'vardiya') updated[f.key] = currentV;
+                        else if (f.type === 'date') updated[f.key] = today();
+                        else if (f.type === 'time') updated[f.key] = currentSaat || nowTime();
+                      });
+                      return updated;
+                    });
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{ width: 40, height: 22, borderRadius: 11, backgroundColor: pastDateMode ? formDef.color : '#D1D5DB', justifyContent: 'center', paddingHorizontal: 2 }}>
+                  <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: pastDateMode ? 'flex-end' : 'flex-start' }} />
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: pastDateMode ? formDef.color : Colors.textSecondary }}>
+                  Geçmişe Yönelik Kayıt
+                </Text>
+              </TouchableOpacity>
+            )}
             {formDef.sections && (
               <SectionTabBar
                 sections={formDef.sections}
@@ -768,7 +870,9 @@ export default function FormDetailScreen({ route }) {
                               setPendingFormTime(now);
                               setShowFormTimePicker(true);
                             }}
+                            onVardiyaPress={() => setShowVardiyaPicker(true)}
                             formColor={formDef.color}
+                            pastDateMode={pastDateMode || !!editingId}
                           />
                         </View>
                       ))}
@@ -800,7 +904,9 @@ export default function FormDetailScreen({ route }) {
                       setPendingFormTime(now);
                       setShowFormTimePicker(true);
                     }}
+                    onVardiyaPress={() => setShowVardiyaPicker(true)}
                     formColor={formDef.color}
+                    pastDateMode={pastDateMode || !!editingId}
                   />
                 ))
               )}
@@ -813,7 +919,7 @@ export default function FormDetailScreen({ route }) {
             <View style={styles.bottomNav}>
               <TouchableOpacity
                 style={styles.bottomNavBtnOutline}
-                onPress={() => { setShowForm(false); setEditingId(null); setActiveTab(0); setShowFormTimePicker(false); setShowFormDatePicker(false); }}
+                onPress={() => { setShowForm(false); setEditingId(null); setActiveTab(0); setShowFormTimePicker(false); setShowFormDatePicker(false); setPastDateMode(false); }}
                 activeOpacity={0.7}
               >
                 <Text style={styles.bottomNavBtnOutlineText}>İptal</Text>
@@ -854,7 +960,7 @@ export default function FormDetailScreen({ route }) {
             <View style={styles.bottomNav}>
               <TouchableOpacity
                 style={styles.bottomNavBtnOutline}
-                onPress={() => { setShowForm(false); setEditingId(null); setShowFormTimePicker(false); setShowFormDatePicker(false); }}
+                onPress={() => { setShowForm(false); setEditingId(null); setShowFormTimePicker(false); setShowFormDatePicker(false); setPastDateMode(false); }}
                 activeOpacity={0.7}
               >
                 <Text style={styles.bottomNavBtnOutlineText}>İptal</Text>
@@ -885,7 +991,7 @@ export default function FormDetailScreen({ route }) {
                   setShowFormDatePicker(false);
                   return;
                 }
-                setFormData(prev => ({ ...prev, [formDateField]: date.toISOString().split('T')[0] }));
+                setFormData(prev => ({ ...prev, [formDateField]: toLocalDateStr(date) }));
                 setShowFormDatePicker(false);
               }}
             />
@@ -914,7 +1020,7 @@ export default function FormDetailScreen({ route }) {
                   <TouchableOpacity
                     style={[styles.datePickerConfirm, { backgroundColor: formDef.color }]}
                     onPress={() => {
-                      const sel = pendingFormDate.toISOString().split('T')[0];
+                      const sel = toLocalDateStr(pendingFormDate);
                       setFormData(prev => ({ ...prev, [formDateField]: sel }));
                       setShowFormDatePicker(false);
                     }}
@@ -982,6 +1088,47 @@ export default function FormDetailScreen({ route }) {
                 </View>
               </View>
             </View>
+            </Modal>
+          )}
+
+          {/* Vardiya Picker Modal */}
+          {showVardiyaPicker && (
+            <Modal visible={true} transparent animationType="fade">
+              <View style={styles.inModalPickerOverlay}>
+                <View style={styles.pickerModalSheet}>
+                  <Text style={styles.datePickerTitle}>Vardiya Seçin</Text>
+                  {VARDIYA_OPTIONS.map(opt => {
+                    const def = VARDIYA_DEFS[opt.key];
+                    const isSelected = formData.vardiya === opt.key;
+                    return (
+                      <TouchableOpacity
+                        key={opt.key}
+                        style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, marginVertical: 4, backgroundColor: isSelected ? (def?.bgColor || '#F3F4F6') : '#fff', borderWidth: 1, borderColor: isSelected ? (def?.color || '#ccc') : '#E5E7EB' }}
+                        onPress={() => {
+                          const saat = getVardiyaSaat(opt.key);
+                          setFormData(prev => ({ ...prev, vardiya: opt.key, ...(prev.saat !== undefined ? { saat: saat || prev.saat } : {}) }));
+                          setShowVardiyaPicker(false);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: def?.color || '#6B7280', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>{opt.key}</Text>
+                        </View>
+                        <View>
+                          <Text style={{ fontSize: 15, fontWeight: '600', color: def?.color || '#1F2937' }}>Vardiya {opt.key}</Text>
+                          <Text style={{ fontSize: 12, color: '#6B7280' }}>{def?.baslangic} – {def?.bitis}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <TouchableOpacity
+                    style={[styles.datePickerCancel, { marginTop: 12, alignSelf: 'center' }]}
+                    onPress={() => setShowVardiyaPicker(false)}
+                  >
+                    <Text style={styles.datePickerCancelText}>İptal</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </Modal>
           )}
         </SafeAreaView>
@@ -1138,42 +1285,92 @@ const styles = StyleSheet.create({
   },
 
   // List
-  list: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: 80 },
+  list: { paddingBottom: 80 },
 
-  // Entry card
-  entryCard: {
+  // Table
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: Colors.bgSurface,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  thText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tableRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.borderLight,
     backgroundColor: Colors.bgWhite,
-    borderRadius: Radius.md,
-    padding: Spacing.lg,
-    ...Shadows.sm,
   },
-  entryHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.sm },
-  entryIdBadge: {
-    paddingHorizontal: 10,
+  tableRowEven: { backgroundColor: Colors.bgSurface },
+  tableRowExpanded: { backgroundColor: '#F0F8FF' },
+  tableRowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cellId: { flex: 1.2, justifyContent: 'center' },
+  cellIdText: { fontSize: 13, fontWeight: '700' },
+  cellVardiya: { fontSize: 10, fontWeight: '600', color: Colors.textTertiary, marginTop: 2 },
+  cellField1: { flex: 3, justifyContent: 'center', paddingHorizontal: 4 },
+  cellField2: { flex: 3, justifyContent: 'center', paddingHorizontal: 4 },
+  cellLabel: { fontSize: 9, fontWeight: '600', color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.3 },
+  cellValue: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary },
+  cellActions: { flex: 2, alignItems: 'flex-end', justifyContent: 'center' },
+  cellDateText: { fontSize: 11, color: Colors.textTertiary, marginBottom: 4 },
+  actionRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+
+  // Expanded detail
+  expandedBody: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.borderLight,
+    gap: 8,
+  },
+  expandedField: {
+    minWidth: '45%',
+    flex: 1,
     paddingVertical: 4,
-    borderRadius: Radius.xs,
   },
-  entryIdText: { fontSize: 12, fontWeight: '700' },
-  vardiyaBadge: {
-    marginLeft: 8,
-    backgroundColor: Colors.brandPrimaryLight,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: Radius.xs,
+  expandedFieldLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 2,
   },
-  vardiyaBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.brandPrimary },
-  editBtn: { marginLeft: 'auto', padding: 4 },
-  editBtnText: { fontSize: 16, color: Colors.brandPrimary, fontWeight: '600' },
-  deleteBtn: { marginLeft: 8, padding: 4 },
-  deleteBtnText: { fontSize: 16, color: Colors.danger, fontWeight: '600' },
-  entryBody: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
-  entryField: { minWidth: '40%' },
-  entryFieldLabel: { fontSize: 11, color: Colors.textSecondary, marginBottom: 1 },
-  entryFieldValue: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary },
-  expandRow: { alignItems: 'center', marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 0.5, borderTopColor: Colors.borderLight },
-  expandText: { fontSize: 13, fontWeight: '600' },
-  entryFooter: { marginTop: Spacing.sm, borderTopWidth: 0.5, borderTopColor: Colors.borderLight, paddingTop: Spacing.sm },
-  entryDate: { fontSize: 11, color: Colors.textTertiary },
+  expandedFieldValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+
+  // Form modal overlay
+  formModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  formModalContainer: {
+    backgroundColor: Colors.bgWhite,
+    borderRadius: Radius.lg,
+    width: '94%',
+    maxHeight: '92%',
+    overflow: 'hidden',
+    ...Shadows.lg,
+  },
 
   // Empty
   emptyWrap: { alignItems: 'center', paddingTop: 60 },

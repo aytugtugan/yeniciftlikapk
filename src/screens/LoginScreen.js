@@ -111,7 +111,7 @@ export default function LoginScreen({ onLoginSuccess }) {
             </View>
           </View>
 
-          <Text style={styles.brandName}>Yeni Çiftlik</Text>
+          <Text style={styles.brandName}>Yeniçiftlik</Text>
           <Text style={styles.subtitle}>Üretim Yönetim Sistemi</Text>
 
           {/* Form */}

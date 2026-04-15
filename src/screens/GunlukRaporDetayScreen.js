@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,13 @@ import {
   TouchableOpacity,
   Alert,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Colors, Spacing, Radius, Shadows } from '../theme';
 import SimpleIcon from '../components/SimpleIcon';
-import { deleteGunlukRapor } from '../api/formsApi';
+import { deleteGunlukRapor, getGunlukRaporlarById } from '../api/formsApi';
+import { exportGunlukRaporExcel } from '../utils/gunlukRaporExcel';
 
 const TR_MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 const formatTR = (dateStr) => {
@@ -93,8 +95,22 @@ const sections = [
       { label: 'Asp 20-22 Domates Salçası', key: 'aseptik2022DomateslSalcasiKg', unit: 'kg' },
       { label: 'Asp 24-26 Biber Salçası', key: 'aseptik2426BiberSalcasiKg', unit: 'kg' },
       { label: 'Asp 24-26 Biber Salçası (Plastik)', key: 'aseptik2426BiberSalcasiPlastikKg', unit: 'kg' },
+    ],
+  },
+  {
+    title: 'Küspe',
+    color: '#718096',
+    bgColor: '#F7FAFC',
+    rows: [
       { label: 'Domates Küspe', key: 'domateslKuspeKg', unit: 'kg' },
       { label: 'Biber Küspe', key: 'biberKuspeKg', unit: 'kg' },
+    ],
+  },
+  {
+    title: 'Fire',
+    color: '#E53E3E',
+    bgColor: '#FFF5F5',
+    rows: [
       { label: 'Fire Miktarı', key: 'fireMiktariAdetGun', unit: 'adet/gün' },
       { label: 'Ambalaj Firesi', key: 'ambalajFiresiAdet', unit: 'adet' },
     ],
@@ -161,12 +177,33 @@ function DetailSection({ title, color, bgColor, rows, data }) {
 export default function GunlukRaporDetayScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const rapor = route.params?.rapor;
+  const paramRapor = route.params?.rapor;
+  const [rapor, setRapor] = useState(paramRapor);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // Fetch full rapor by ID to ensure all fields + child lists are available
+  useEffect(() => {
+    if (!paramRapor?.id) return;
+    setLoading(true);
+    getGunlukRaporlarById(paramRapor.id)
+      .then(full => { if (full && full.id) setRapor(full); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [paramRapor?.id]);
 
   if (!rapor) {
     return (
       <View style={s.container}>
         <Text style={{ textAlign: 'center', marginTop: 60, color: Colors.textSecondary }}>Kayıt bulunamadı</Text>
+      </View>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.brandPrimary} />
       </View>
     );
   }
@@ -178,6 +215,17 @@ export default function GunlukRaporDetayScreen() {
 
   const handleEdit = () => {
     navigation.navigate('GunlukRaporForm', { rapor });
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportGunlukRaporExcel(rapor);
+    } catch (e) {
+      Alert.alert('Hata', e.message || 'Excel oluşturulurken hata oluştu');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleDelete = () => {
@@ -207,6 +255,9 @@ export default function GunlukRaporDetayScreen() {
           <Text style={s.headerTitle}>Rapor #{rapor.id}</Text>
           <Text style={s.headerSubtitle}>{formatTR(rapor.raporTarihi)}</Text>
         </View>
+        <TouchableOpacity style={s.exportBtn} onPress={handleExport} activeOpacity={0.7} disabled={exporting}>
+          {exporting ? <ActivityIndicator size="small" color={Colors.success} /> : <SimpleIcon name="file-download" size={18} color={Colors.success} />}
+        </TouchableOpacity>
         <TouchableOpacity style={s.editHeaderBtn} onPress={handleEdit} activeOpacity={0.7}>
           <Text style={s.editHeaderBtnText}>Düzenle</Text>
         </TouchableOpacity>
@@ -244,6 +295,44 @@ export default function GunlukRaporDetayScreen() {
             data={rapor}
           />
         ))}
+
+        {/* Child List: Tüketilen Hammadde-Yarı Mamul */}
+        {Array.isArray(rapor.uretimVerilen) && rapor.uretimVerilen.length > 0 && (
+          <View style={s.section}>
+            <View style={[s.sectionHeader, { backgroundColor: '#FFF7ED' }]}>
+              <View style={[s.sectionDot, { backgroundColor: '#F97316' }]} />
+              <Text style={[s.sectionTitle, { color: '#F97316' }]}>Tüketilen Hammadde-Yarı Mamul</Text>
+              <Text style={s.sectionCount}>{rapor.uretimVerilen.length} kalem</Text>
+            </View>
+            <View style={s.sectionBody}>
+              {rapor.uretimVerilen.map((item, i) => (
+                <View key={i} style={[s.fieldRow, i < rapor.uretimVerilen.length - 1 && s.fieldRowBorder]}>
+                  <Text style={[s.fieldLabel, { flex: 1 }]} numberOfLines={2}>{item.urunAdi}</Text>
+                  <Text style={s.fieldValue}>{Number(item.deger || 0).toLocaleString('tr-TR')}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Child List: Üretilen Ürünler */}
+        {Array.isArray(rapor.uretilen) && rapor.uretilen.length > 0 && (
+          <View style={s.section}>
+            <View style={[s.sectionHeader, { backgroundColor: '#F0FFF4' }]}>
+              <View style={[s.sectionDot, { backgroundColor: '#38A169' }]} />
+              <Text style={[s.sectionTitle, { color: '#38A169' }]}>Üretilen Ürünler</Text>
+              <Text style={s.sectionCount}>{rapor.uretilen.length} kalem</Text>
+            </View>
+            <View style={s.sectionBody}>
+              {rapor.uretilen.map((item, i) => (
+                <View key={i} style={[s.fieldRow, i < rapor.uretilen.length - 1 && s.fieldRowBorder]}>
+                  <Text style={[s.fieldLabel, { flex: 1 }]} numberOfLines={2}>{item.urunAdi}</Text>
+                  <Text style={s.fieldValue}>{Number(item.deger || 0).toLocaleString('tr-TR')}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Delete button at bottom */}
         <TouchableOpacity style={s.deleteBtn} onPress={handleDelete} activeOpacity={0.7}>
@@ -283,6 +372,10 @@ const s = StyleSheet.create({
     backgroundColor: Colors.brandPrimary,
   },
   editHeaderBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  exportBtn: {
+    width: 36, height: 36, borderRadius: 18, marginRight: 8,
+    backgroundColor: Colors.successLight, alignItems: 'center', justifyContent: 'center',
+  },
 
   content: { padding: Spacing.lg },
 
@@ -336,6 +429,17 @@ const s = StyleSheet.create({
   },
   fieldLabel: { fontSize: 13, color: Colors.textSecondary, flex: 1 },
   fieldValue: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, textAlign: 'right' },
+
+  // Child list badge
+  childCodeBadge: {
+    backgroundColor: '#E8F4FD',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 2,
+  },
+  childCodeText: { fontSize: 9, fontWeight: '700', color: Colors.brandPrimary, letterSpacing: 0.3 },
 
   // Delete
   deleteBtn: {

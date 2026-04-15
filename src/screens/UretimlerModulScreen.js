@@ -1,42 +1,29 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import SimpleIcon from '../components/SimpleIcon';
-import { Colors, Typography, Spacing, Radius, Shadows } from '../theme';
+import { Colors, Shadows } from '../theme';
+
+const CARD_GAP = 12;
+const CARD_PAD = 16;
 
 const modules = [
-  {
-    icon: 'inventory-2',
-    title: 'Stok Listesi',
-    description: 'Yeniçiftlik fabrikası stok durumunu görüntüle',
-    route: 'StokListesi',
-  },
-  {
-    icon: 'show-chart',
-    title: 'Günlük Üretimler',
-    description: 'Günlük üretim kayıtlarını görüntüle ve filtrele',
-    route: 'GunlukUretimlerTab',
-  },
-  {
-    icon: 'assignment',
-    title: 'Emirler',
-    description: 'Aktif üretim emirlerini istasyona göre görüntüle',
-    route: 'EmirlerTab',
-  },
-  {
-    icon: 'assessment',
-    title: 'Üretim ve Tüketimler',
-    description: 'Üretim ve tüketim özet raporlarını görüntüle',
-    route: 'UretimTuketim',
-  },
+  { icon: 'inventory-2', title: 'Stok\nListesi', route: 'StokListesi', color: '#0095F6', bg: '#E8F4FD' },
+  { icon: 'show-chart', title: 'Günlük\nÜretimler', route: 'GunlukUretimlerTab', color: '#059669', bg: '#ECFDF5' },
+  { icon: 'assignment', title: 'Emirler', route: 'EmirlerTab', color: '#7C3AED', bg: '#F3E8FF' },
+  { icon: 'assessment', title: 'Üretim ve\nTüketimler', route: 'UretimTuketim', color: '#D97706', bg: '#FEF3C7' },
+  { icon: 'delete_outline', title: 'Fire\nGirişi', route: 'FireList', color: '#DC2626', bg: '#FEE2E2' },
 ];
 
 export default function UretimlerModulScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const { width: screenW } = useWindowDimensions();
+  const numCols = screenW >= 600 ? 4 : 3;
+  const cardSize = (screenW - CARD_PAD * 2 - CARD_GAP * (numCols - 1)) / numCols;
 
   return (
     <View style={styles.container}>
@@ -49,23 +36,26 @@ export default function UretimlerModulScreen() {
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {modules.map((mod, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.moduleCard}
-            onPress={() => navigation.navigate(mod.route)}
-            activeOpacity={0.7}>
-            <View style={styles.moduleIcon}>
-              <SimpleIcon name={mod.icon} size={24} color={Colors.brandPrimary} />
-            </View>
-            <View style={styles.moduleContent}>
-              <Text style={styles.moduleTitle}>{mod.title}</Text>
-              <Text style={styles.moduleDescription}>{mod.description}</Text>
-            </View>
-            <SimpleIcon name="chevron_right" size={24} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        ))}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.grid}>
+          {modules.map((mod, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[styles.card, { width: cardSize, height: cardSize }]}
+              onPress={() => navigation.navigate(mod.route)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.cardIcon, { backgroundColor: mod.bg }]}>
+                <SimpleIcon name={mod.icon} size={24} color={mod.color} />
+              </View>
+              <Text style={styles.cardTitle}>{mod.title}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -80,18 +70,19 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary },
   placeholder: { width: 40 },
-  profileBtn: { width: 40, alignItems: 'center', padding: 4 },
   scrollView: { flex: 1 },
-  scrollContent: { padding: 16, gap: 12 },
-  moduleCard: {
-    flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16,
-    gap: 14, backgroundColor: Colors.bgWhite, ...Shadows.sm,
+  scrollContent: { padding: CARD_PAD, gap: 16 },
+  grid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: CARD_GAP,
   },
-  moduleIcon: {
-    width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: Colors.brandPrimaryLight,
+  card: {
+    backgroundColor: Colors.bgWhite, borderRadius: 16,
+    padding: 12, justifyContent: 'center', alignItems: 'center',
+    ...Shadows.sm,
   },
-  moduleContent: { flex: 1 },
-  moduleTitle: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
-  moduleDescription: { fontSize: 13, marginTop: 2, color: Colors.textSecondary },
+  cardIcon: {
+    width: 44, height: 44, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
+  cardTitle: { fontSize: 12, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center' },
 });

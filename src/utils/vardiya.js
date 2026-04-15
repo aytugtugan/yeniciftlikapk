@@ -2,9 +2,12 @@
  * Vardiya (Shift) Definitions & Helpers
  *
  * Day calculation order: C → A → B
- *   C : 00:00 – 08:00  (hesap: 00:30 – 08:29)
- *   A : 08:00 – 16:00  (hesap: 08:30 – 16:29)
- *   B : 16:00 – 00:00  (hesap: 16:30 – 00:29)
+ *   C : 00:00 – 08:00
+ *   A : 08:00 – 16:00
+ *   B : 16:00 – 00:00
+ *
+ * getCurrentVardiya() form görünürlüğü için +30dk kuralı uygular.
+ * Veri çekme/sınıflandırma birebir saat aralıkları ile yapılır.
  */
 
 export const VARDIYA_DEFS = {
@@ -14,15 +17,15 @@ export const VARDIYA_DEFS = {
 };
 
 /**
- * +30 dk hesaplama kuralı (kayıt/hesaplama için)
- *   A : 08:30 – 16:29
- *   B : 16:30 – 00:29
- *   C : 00:30 – 08:29
+ * Veri çekme için birebir vardiya saatleri
+ *   A : 08:00 – 16:00
+ *   B : 16:00 – 00:00
+ *   C : 00:00 – 08:00
  */
 export const VARDIYA_HESAP = {
-  A: { baslangic: '08:30', bitis: '16:29' },
-  B: { baslangic: '16:30', bitis: '00:29' },
-  C: { baslangic: '00:30', bitis: '08:29' },
+  A: { baslangic: '08:00', bitis: '16:00' },
+  B: { baslangic: '16:00', bitis: '00:00' },
+  C: { baslangic: '00:00', bitis: '08:00' },
 };
 
 /** Ordered as a production day: C → A → B */

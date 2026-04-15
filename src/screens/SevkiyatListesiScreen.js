@@ -9,6 +9,7 @@ import SimpleIcon from '../components/SimpleIcon';
 import { Colors, Shadows } from '../theme';
 import { AppDataContext } from '../context/AppDataContext';
 import { getSevkiyatlar } from '../api/oncuApi';
+import { toLocalDateStr } from '../utils/dateUtils';
 
 export default function SevkiyatListesiScreen() {
   const navigation = useNavigation();
@@ -28,11 +29,11 @@ export default function SevkiyatListesiScreen() {
 
   const [startDate, setStartDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return toLocalDateStr(d);
   });
   const [endDate, setEndDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
+    return toLocalDateStr(d);
   });
 
   const loadData = useCallback(async (isRefresh = false) => {
@@ -42,8 +43,8 @@ export default function SevkiyatListesiScreen() {
     setError(null);
     try {
       const res = await getSevkiyatlar(oncuToken, {
-        startDate: startDate ? new Date(startDate).toISOString() : undefined,
-        endDate: endDate ? new Date(endDate).toISOString() : undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
         page,
         pageSize,
       });
@@ -88,7 +89,11 @@ export default function SevkiyatListesiScreen() {
 
   const handleItemPress = (item) => {
     if (item.irsaliyeNo) {
-      navigation.navigate('SevkiyatDetay', { irsaliyeNo: item.irsaliyeNo, musteriAdi: item.musteriAdi });
+      navigation.navigate('SevkiyatDetay', {
+        irsaliyeNo: item.irsaliyeNo,
+        musteriAdi: item.musteriAdi,
+        siparisNo: item.siparisNo,
+      });
     }
   };
 
@@ -96,9 +101,9 @@ export default function SevkiyatListesiScreen() {
   const clearFilters = () => {
     setSearch('');
     const d = new Date(); d.setDate(d.getDate() - 30);
-    setStartDate(d.toISOString().split('T')[0]);
+    setStartDate(toLocalDateStr(d));
     const e = new Date(); e.setDate(e.getDate() + 1);
-    setEndDate(e.toISOString().split('T')[0]);
+    setEndDate(toLocalDateStr(e));
     setPage(1);
   };
 
